@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"llama-server-studio/internal/bench"
 	"llama-server-studio/internal/config"
@@ -82,8 +83,64 @@ func main() {
 
 	// 4. Try auto-detecting llama-server binary in common paths if empty
 	if cfg.LlamaServerBin == "" {
-		cfg.LlamaServerBin = locateLlamaServer()
+		cfg.LlamaServerBin = locateLlamaServer(cfg.LlamaBinDir)
 	}
+
+	// === CRITICAL BOOT VALIDATION CHECKS ===
+	// A. Validate llama-server executable
+	if cfg.LlamaServerBin == "" {
+		log.Fatalf("CRITICAL ERROR: No 'llama-server' executable path is configured. Please provide it via '--llama-server-bin' flag or define 'llama_server_bin' in your config.json file.")
+	}
+
+	binInfo, err := os.Stat(cfg.LlamaServerBin)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Fatalf("CRITICAL ERROR: Configured 'llama-server' executable does not exist at path: %s", cfg.LlamaServerBin)
+		}
+		log.Fatalf("CRITICAL ERROR: Failed to read 'llama-server' binary metadata: %v", err)
+	}
+
+	if binInfo.IsDir() {
+		log.Fatalf("CRITICAL ERROR: The configured 'llama-server' path is a directory, not a executable file: %s", cfg.LlamaServerBin)
+	}
+
+	// Verify execution permissions
+	if binInfo.Mode()&0111 == 0 {
+		log.Fatalf("CRITICAL ERROR: The configured 'llama-server' file at '%s' is not executable. Please run 'chmod +x %s' to grant execution permissions.", cfg.LlamaServerBin, cfg.LlamaServerBin)
+	}
+
+	// Verify runnable execution (dry run)
+	dryCmd := exec.Command(cfg.LlamaServerBin, "--help")
+	if err := dryCmd.Start(); err != nil {
+		log.Fatalf("CRITICAL ERROR: The configured file at '%s' failed execution checks (binary may be corrupted or of incompatible processor architecture): %v", cfg.LlamaServerBin, err)
+	} else {
+		// Wait a moment and kill dry run safely
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			_ = dryCmd.Process.Kill()
+		}()
+		_ = dryCmd.Wait()
+	}
+
+	// B. Validate models scan directories
+	if len(cfg.ModelsDirs) == 0 {
+		log.Fatalf("CRITICAL ERROR: No model scan directories configured. Please specify at least one scan directory using the '--models-dir' flag or define 'models_dirs' in your config.json file.")
+	}
+
+	validDirCount := 0
+	for _, dir := range cfg.ModelsDirs {
+		// Attempt to create directory if missing
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Printf("Warning: Configured model scan directory '%s' could not be resolved or created: %v", dir, err)
+			continue
+		}
+		validDirCount++
+	}
+
+	if validDirCount == 0 {
+		log.Fatalf("CRITICAL ERROR: None of the configured model scan directories are accessible or exist.")
+	}
+	// =======================================
 
 	// Save configuration back with resolved details
 	_ = config.SaveConfig(cfg, cfgPath)
@@ -145,8 +202,16 @@ func main() {
 	log.Println("Studio exited cleanly.")
 }
 
-func locateLlamaServer() string {
-	// Look up in System PATH first
+func locateLlamaServer(binDir string) string {
+	// 1. If a custom binary directory is configured, check it first
+	if binDir != "" {
+		path := filepath.Join(binDir, "llama-server")
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+
+	// 2. Look up in System PATH first
 	if path, err := exec.LookPath("llama-server"); err == nil {
 		return path
 	}

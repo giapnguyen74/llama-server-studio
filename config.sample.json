@@ -1,0 +1,17 @@
+{
+  "listen": "127.0.0.1:3100",
+  "llama_server_bin": "/usr/local/bin/llama-server",
+  "llama_bin_dir": "/usr/local/bin",
+  "models_dirs": [
+    "/Users/username/models"
+  ],
+  "scan_hf_cache": true,
+  "hf_cache_dirs": [
+    "/Users/username/.cache/huggingface/hub"
+  ],
+  "port_range_start": 41000,
+  "port_range_end": 41999,
+  "admin_token": "your-secure-admin-token-here",
+  "allow_insecure_lan": false,
+  "data_dir": "/Users/username/.local/share/llama-server-studio"
+}
