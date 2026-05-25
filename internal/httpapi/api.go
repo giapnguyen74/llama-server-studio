@@ -83,21 +83,19 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 				return
 			}
 
-			// -- Admin token enforcement --
-			// On non-loopback binds (and not explicitly insecure-LAN opted out): always require token.
-			// On loopback: still enforce if an admin_token is configured (defence-in-depth).
+			// -- Admin credential enforcement --
+			// Uses cfg.VerifyAdminPassword which checks AdminPasswordHash (bcrypt) first,
+			// then falls back to the legacy plaintext AdminToken.
+			// On non-loopback binds (and not explicitly insecure-LAN opted out): always require credential.
+			// On loopback: enforce only when a credential is configured (defence-in-depth).
 			if !s.cfg.BindIsLoopback() && !s.cfg.AllowInsecureLAN {
-				// non-loopback: token is mandatory (startup already guards empty token)
-				token := bearerToken(r)
-				if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
-					writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid admin token")
+				if !s.cfg.VerifyAdminPassword(bearerToken(r)) {
+					writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid admin credential")
 					return
 				}
-			} else if s.cfg.BindIsLoopback() && s.cfg.AdminToken != "" {
-				// loopback + token configured: still enforce it
-				token := bearerToken(r)
-				if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
-					writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid admin token")
+			} else if s.cfg.BindIsLoopback() && s.cfg.HasAdminCredential() {
+				if !s.cfg.VerifyAdminPassword(bearerToken(r)) {
+					writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid admin credential")
 					return
 				}
 			}
@@ -130,8 +128,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/profiles/{profile_id}", auth(s.handleUpdateProfile))
 	mux.HandleFunc("DELETE /api/profiles/{profile_id}", auth(s.handleDeleteProfile))
 	mux.HandleFunc("POST /api/profiles/{profile_id}/clone", auth(s.handleCloneProfile))
-	mux.HandleFunc("GET /api/profiles/{profile_id}/export.json", s.handleExportProfileJSON)
-	mux.HandleFunc("GET /api/profiles/{profile_id}/export.sh", s.handleExportProfileSH)
+	mux.HandleFunc("GET /api/profiles/{profile_id}/export.json", auth(s.handleExportProfileJSON))
+	mux.HandleFunc("GET /api/profiles/{profile_id}/export.sh", auth(s.handleExportProfileSH))
 
 	// 5. Managed Servers API
 	mux.HandleFunc("GET /api/servers", auth(s.handleListServers))
@@ -140,7 +138,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/servers/{server_id}/restart", auth(s.handleRestartServer))
 	mux.HandleFunc("GET /api/servers/{server_id}", auth(s.handleGetServer))
 	mux.HandleFunc("GET /api/servers/{server_id}/logs", auth(s.handleGetServerLogs))
-	mux.HandleFunc("GET /api/servers/{server_id}/logs/download", s.handleDownloadServerLogs)
+	mux.HandleFunc("GET /api/servers/{server_id}/logs/download", auth(s.handleDownloadServerLogs))
 	mux.HandleFunc("GET /api/servers/{server_id}/stats", auth(s.handleGetServerStats))
 	mux.HandleFunc("POST /api/servers/{server_id}/test", auth(s.handleTestServer))
 
@@ -166,20 +164,20 @@ func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
 			}
 
 			// If no gateway token is configured, the proxy is disabled entirely.
-			if s.cfg.GatewayToken == "" {
+			if !s.cfg.HasGatewayToken() {
 				writeJSONError(w, http.StatusServiceUnavailable,
 					"Proxy gateway is disabled: no gateway_token is configured. "+
 						"Set one in the Security Gateway settings to enable the proxy endpoint.")
 				return
 			}
 
-			// Token is configured — validate the caller's token.
+			// Token is configured — validate the caller's token (bcrypt or legacy plaintext).
 			authHeader := r.Header.Get("Authorization")
 			token := strings.TrimPrefix(authHeader, "Bearer ")
 			if token == "" {
 				token = r.URL.Query().Get("token")
 			}
-			if token != s.cfg.GatewayToken {
+			if !s.cfg.VerifyGatewayToken(token) {
 				writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid gateway token. Use Authorization: Bearer <gateway_token>")
 				return
 			}
@@ -234,7 +232,22 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.cfg)
+	// Return a sanitised view — credentials (hashes, plaintext tokens) are never sent to the browser.
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"listen":             s.cfg.Listen,
+		"llama_server_bin":   s.cfg.LlamaServerBin,
+		"llama_bin_dir":      s.cfg.LlamaBinDir,
+		"models_dirs":        s.cfg.ModelsDirs,
+		"scan_hf_cache":      s.cfg.ScanHFCache,
+		"hf_cache_dirs":      s.cfg.HFCacheDirs,
+		"port_range_start":   s.cfg.PortRangeStart,
+		"port_range_end":     s.cfg.PortRangeEnd,
+		"data_dir":           s.cfg.DataDir,
+		"allowed_origins":    s.cfg.AllowedOrigins,
+		// Credential status only — never the actual value or hash.
+		"gateway_token_set":  s.cfg.HasGatewayToken(),
+		"admin_cred_set":     s.cfg.HasAdminCredential(),
+	})
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
@@ -246,15 +259,15 @@ func (s *Server) handleUpdateSecurity(w http.ResponseWriter, r *http.Request) {
 	// (already checked by the auth middleware) OR the existing gateway token in
 	// X-Confirm-Token. On loopback without an admin token, the confirm token is required
 	// so that pure CSRF from a browser cannot silently rotate the gateway key.
-	existingGW := s.cfg.GatewayToken
-	if existingGW != "" {
+	// Extra guard: rotating an existing gateway token requires the admin credential OR
+	// the current gateway token supplied in X-Confirm-Token.
+	if s.cfg.HasGatewayToken() {
 		confirm := r.Header.Get("X-Confirm-Token")
-		adminOK := s.cfg.AdminToken != "" &&
-			subtle.ConstantTimeCompare([]byte(bearerToken(r)), []byte(s.cfg.AdminToken)) == 1
-		gwOK := subtle.ConstantTimeCompare([]byte(confirm), []byte(existingGW)) == 1
+		adminOK := s.cfg.HasAdminCredential() && s.cfg.VerifyAdminPassword(bearerToken(r))
+		gwOK := s.cfg.VerifyGatewayToken(confirm)
 		if !adminOK && !gwOK {
 			writeJSONError(w, http.StatusForbidden,
-				"Rotating the gateway token requires either the admin token (Authorization: Bearer ...) "+
+				"Rotating the gateway token requires either the admin credential (Authorization: Bearer ...) "+
 					"or the current gateway token in the X-Confirm-Token header")
 			return
 		}
@@ -268,11 +281,11 @@ func (s *Server) handleUpdateSecurity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.cfg.GatewayToken = payload.GatewayToken
-
-	// If gateway token is now empty, disable the proxy
-	if s.cfg.GatewayToken == "" {
-		s.cfg.GatewayToken = ""
+	// Hash the new token (or clear both fields if empty).
+	// SetGatewayToken returns a validation error (sk- prefix, length) or a bcrypt error.
+	if err := s.cfg.SetGatewayToken(payload.GatewayToken); err != nil {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Invalid gateway token: %v", err))
+		return
 	}
 
 	if err := config.SaveConfig(s.cfg, s.cfgPath); err != nil {
@@ -280,10 +293,11 @@ func (s *Server) handleUpdateSecurity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Never echo the token back — only confirm whether one is set.
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"ok":            true,
-		"gateway_token": s.cfg.GatewayToken,
-		"proxy_enabled": s.cfg.GatewayToken != "",
+		"ok":               true,
+		"gateway_token_set": s.cfg.HasGatewayToken(),
+		"proxy_enabled":    s.cfg.HasGatewayToken(),
 	})
 }
 

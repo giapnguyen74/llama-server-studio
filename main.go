@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	"llama-server-studio/internal/bench"
 	"llama-server-studio/internal/config"
 	"llama-server-studio/internal/httpapi"
@@ -33,15 +35,16 @@ var embedFS embed.FS
 
 func main() {
 	// 1. Setup CLI Flags
-	listenFlag := flag.String("listen", "", "Studio bind address (default 127.0.0.1:3100)")
-	configFlag := flag.String("config", "", "Path to config.json file")
-	dataDirFlag := flag.String("data-dir", "", "Path to data directory")
-	serverBinFlag := flag.String("llama-server-bin", "", "Path to llama-server executable")
-	binDirFlag := flag.String("llama-bin-dir", "", "Path to llama.cpp binary directory")
-	modelsDirFlag := flag.String("models-dir", "", "Add a model scan directory (can be repeated)")
-	scanHFFlag := flag.String("scan-hf-cache", "", "Scan Hugging Face cache directories (true/false)")
-	adminTokenFlag := flag.String("admin-token", "", "Token required for remote admin access")
-	allowLANFlag := flag.String("allow-insecure-lan", "", "Allow non-localhost bind without token (true/false)")
+	listenFlag      := flag.String("listen", "", "Studio bind address (default 127.0.0.1:3100)")
+	configFlag      := flag.String("config", "", "Path to config.json file")
+	dataDirFlag     := flag.String("data-dir", "", "Path to data directory")
+	serverBinFlag   := flag.String("llama-server-bin", "", "Path to llama-server executable")
+	binDirFlag      := flag.String("llama-bin-dir", "", "Path to llama.cpp binary directory")
+	modelsDirFlag   := flag.String("models-dir", "", "Add a model scan directory (can be repeated)")
+	scanHFFlag      := flag.String("scan-hf-cache", "", "Scan Hugging Face cache directories (true/false)")
+	adminTokenFlag  := flag.String("admin-token", "", "Token required for remote admin access")
+	allowLANFlag    := flag.String("allow-insecure-lan", "", "Allow non-localhost bind without token (true/false)")
+	passwordFlag    := flag.Bool("password", false, "Set the admin password interactively, save bcrypt hash to config.json, and exit")
 
 	flag.Parse()
 
@@ -56,6 +59,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize configuration: %v", err)
 	}
+
+	// 2b. -password mode: prompt, hash, save, exit — must run before anything else.
+	if *passwordFlag {
+		if err := runPasswordSetup(cfg, cfgPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	log.Printf("Loaded configuration from: %s", cfgPath)
 
 	// 3. Override configs with CLI arguments
@@ -88,10 +101,11 @@ func main() {
 	// 3b. Compute loopback flag after all CLI overrides are applied
 	cfg.SetBindIsLoopback(computeLoopback(cfg.Listen))
 
-	// 3c. Security guard: non-loopback bind without admin token must be explicit
-	if !cfg.BindIsLoopback() && !cfg.AllowInsecureLAN && cfg.AdminToken == "" {
-		log.Fatalf("SECURITY ERROR: Server is configured to listen on %s (non-loopback) but no admin_token is set.\n"+
-			"  Set 'admin_token' in config.json or pass --admin-token, or pass --allow-insecure-lan=true to explicitly opt out.\n"+
+	// 3c. Security guard: non-loopback bind without any admin credential must be explicit
+	if !cfg.BindIsLoopback() && !cfg.AllowInsecureLAN && !cfg.HasAdminCredential() {
+		log.Fatalf("SECURITY ERROR: Server is configured to listen on %s (non-loopback) but no admin credential is set.\n"+
+			"  Run with -password to set a bcrypt password, set 'admin_token' in config.json,\n"+
+			"  or pass --allow-insecure-lan=true to explicitly opt out.\n"+
 			"  Refusing to start to protect against unauthenticated remote access.", cfg.Listen)
 	}
 
@@ -320,7 +334,9 @@ func printBanner(cfg *config.Config) {
 	}
 	fmt.Printf("  Scan Folders    : %s\n", strings.Join(cfg.ModelsDirs, ", "))
 
-	if cfg.AdminToken != "" {
+	if cfg.AdminPasswordHash != "" {
+		fmt.Println("  Admin Auth      : bcrypt password (set via -password)")
+	} else if cfg.AdminToken != "" {
 		// Print a redacted preview — never expose the full token in stdout
 		preview := cfg.AdminToken
 		if len(preview) > 8 {
@@ -328,9 +344,9 @@ func printBanner(cfg *config.Config) {
 		} else {
 			preview = "****"
 		}
-		fmt.Printf("  Admin Token     : %s (redacted)\n", preview)
+		fmt.Printf("  Admin Token     : %s (redacted, consider upgrading to -password)\n", preview)
 	} else if !cfg.BindIsLoopback() {
-		fmt.Println("  Admin Token     : [!] NOT SET — remote access requires a token")
+		fmt.Println("  Admin Auth      : [!] NOT SET — remote access requires a credential")
 	}
 	fmt.Println(`  =========================================`)
 	fmt.Println(` `)
@@ -361,6 +377,52 @@ func computeLoopback(listen string) bool {
 		}
 	}
 	return true
+}
+
+// runPasswordSetup prompts the user twice for a password, hashes it with bcrypt,
+// saves the hash to config.json, and returns.  Called when -password flag is set.
+func runPasswordSetup(cfg *config.Config, cfgPath string) error {
+	fmt.Println("=== llama-server-studio password setup ===")
+	fmt.Printf("Config file: %s\n\n", cfgPath)
+
+	// Read password with no echo using golang.org/x/term
+	fmt.Fprint(os.Stderr, "Enter new admin password: ")
+	pw1, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr) // newline after hidden input
+	if err != nil {
+		return fmt.Errorf("failed to read password: %w", err)
+	}
+	if len(pw1) == 0 {
+		return fmt.Errorf("password must not be empty")
+	}
+	if len(pw1) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
+	}
+
+	fmt.Fprint(os.Stderr, "Confirm admin password: ")
+	pw2, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return fmt.Errorf("failed to read confirmation: %w", err)
+	}
+
+	if string(pw1) != string(pw2) {
+		return fmt.Errorf("passwords do not match")
+	}
+
+	// Hash with bcrypt and clear the legacy plaintext token
+	if err := cfg.HashPassword(string(pw1)); err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	if err := config.SaveConfig(cfg, cfgPath); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	fmt.Println("\nPassword set successfully.")
+	fmt.Printf("Hash stored in: %s\n", cfgPath)
+	fmt.Println("Restart llama-server-studio to apply the new credential.")
+	return nil
 }
 
 func parseListenAddress(listen string) (string, int, error) {

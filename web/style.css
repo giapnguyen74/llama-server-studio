@@ -1361,3 +1361,74 @@ pre, code, textarea.code-font, .terminal-body {
   font-weight: 600;
   margin-top: 16px;
 }
+
+/* ── Server Lifecycle redesign ─────────────────────────────────── */
+
+/* Detail view top-bar: back button + profile identity + controls */
+.lifecycle-detail-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  flex-wrap: wrap;
+}
+
+.lifecycle-detail-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lifecycle-detail-profile-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.lifecycle-detail-model-name {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* Make lifecycle-layout-grid single-column in detail view (log fills width) */
+#lifecycle-detail-view .lifecycle-layout-grid {
+  grid-template-columns: 1fr;
+}
+
+/* List table row — entire row is clickable */
+#lifecycle-list-table tbody tr {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+#lifecycle-list-table tbody tr:hover {
+  background: var(--surface-hover, rgba(255,255,255,0.04));
+}
+
+/* Dim the model cell so it doesn't compete with profile name */
+#lifecycle-list-table .cell-model {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Row action buttons — don't trigger row click */
+#lifecycle-list-table .row-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Metric value in list — monospace for alignment */
+#lifecycle-list-table .cell-metric {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85rem;
+}

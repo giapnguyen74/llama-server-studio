@@ -29,8 +29,11 @@ document.addEventListener("DOMContentLoaded", () => {
     benchmarks: [],
     settings: {},
     activeServerId: null,
+    activeProfileIdInLifecycle: null,
     logPollInterval: null,
     statsPollInterval: null,
+    listPollInterval: null,
+    lastLogCount: 0,
     telemetryHistory: { cpu: [], mem: [] },
   };
 
@@ -381,8 +384,11 @@ document.addEventListener("DOMContentLoaded", () => {
             )
           );
           card.addEventListener("click", () => {
+            // Pre-set the active profile so loadServerLifecycleView skips the list
+            const targetProfile = state.profiles.find(pr => pr.id === srv.profile_id);
+            if (targetProfile) state.activeProfileIdInLifecycle = targetProfile.id;
             document.querySelector("[data-target=servers]").click();
-            setTimeout(() => selectServerInLifecycle(srv.id), 100);
+            setTimeout(() => openProfileDetail(srv.profile_id), 50);
           });
           return card;
         })
@@ -1330,313 +1336,373 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- 6. SERVER LIFECYCLE SECTION ---
 
-  const lifecycleProfilesList = document.getElementById("lifecycle-profiles-list");
-  const lifecycleDetails = document.getElementById("lifecycle-details-container");
-  const lifecycleEmpty = document.getElementById("lifecycle-empty-state");
+  const lcListView   = document.getElementById("lifecycle-list-view");
+  const lcDetailView = document.getElementById("lifecycle-detail-view");
+  const lcListBody   = document.getElementById("lifecycle-list-body");
 
-  const btnStartSrv = document.getElementById("btn-start-srv");
-  const btnStopSrv = document.getElementById("btn-stop-srv");
+  const btnStartSrv   = document.getElementById("btn-start-srv");
+  const btnStopSrv    = document.getElementById("btn-stop-srv");
   const btnRestartSrv = document.getElementById("btn-restart-srv");
+  const btnBackToList = document.getElementById("btn-back-to-list");
 
-  // Helper to start server from ANY tab
+  // ── Polling intervals ────────────────────────────────────────────
+  // listPollInterval  : fires every 5 s while list view is visible
+  // logPollInterval   : fires every 1 s while detail view is open
+  // statsPollInterval : fires every 1.5 s while detail view is open
+  function clearDetailIntervals() {
+    if (state.logPollInterval)   { clearInterval(state.logPollInterval);   state.logPollInterval   = null; }
+    if (state.statsPollInterval) { clearInterval(state.statsPollInterval); state.statsPollInterval = null; }
+  }
+  function clearListInterval() {
+    if (state.listPollInterval)  { clearInterval(state.listPollInterval);  state.listPollInterval  = null; }
+  }
+
+  // ── Status helpers ───────────────────────────────────────────────
+  function statusClass(status) {
+    if (status === "healthy" || status === "ready")      return "green";
+    if (status === "crashed")                            return "red";
+    if (status === "starting" || status === "loading")   return "yellow";
+    return "gray";
+  }
+
+  // ── LIST VIEW ────────────────────────────────────────────────────
+
+  // statsCache: profileID → { cpu, mem, genTps } — populated by the list poller
+  const statsCache = {};
+
+  async function pollListOnce() {
+    try {
+      state.servers = await apiCall("/api/servers");
+
+      // Fetch stats for every running server in parallel (fire-and-forget per server)
+      const running = state.servers.filter(s => s.status !== "stopped");
+      await Promise.all(running.map(async srv => {
+        try {
+          const samples = await apiCall(`/api/servers/${srv.id}/stats`);
+          if (samples.length > 0) {
+            const last = samples[samples.length - 1];
+            const hasMetrics = Array.isArray(srv.profile_snapshot?.args) &&
+                               srv.profile_snapshot.args.includes("--metrics");
+            statsCache[srv.profile_id] = {
+              cpu:    parseFloat(last.cpu_percent || 0).toFixed(1) + "%",
+              mem:    (last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2) + " GB",
+              genTps: hasMetrics ? (last.generation_tokens_per_second || 0).toFixed(1) + " t/s" : "—",
+            };
+          }
+        } catch { /* stats unavailable for this server */ }
+      }));
+
+      renderLifecycleList();
+    } catch { /* network error — keep stale data */ }
+  }
+
+  function renderLifecycleList() {
+    if (!lcListBody) return;
+    if (state.profiles.length === 0) {
+      lcListBody.replaceChildren(
+        h("tr", {}, h("td", {colspan: "8", class: "loading-state"}, "No profiles yet — create one in the Profiles tab."))
+      );
+      return;
+    }
+
+    lcListBody.replaceChildren(
+      ...state.profiles.map(p => {
+        const srv    = state.servers.find(s => s.profile_id === p.id && s.status !== "stopped");
+        const status = srv ? srv.status : "stopped";
+        const sc     = statsCache[p.id] || {};
+        const m      = state.models.find(mod => mod.id === p.model_id);
+
+        // Truncate model name to ~24 chars
+        let modelLabel = m ? m.display_name : "—";
+        if (modelLabel.length > 24) modelLabel = modelLabel.slice(0, 22) + "…";
+
+        // Row action buttons — stopPropagation so they don't open detail
+        const actions = h("div", {class: "row-actions"});
+        if (srv) {
+          const stopBtn = h("button", {class: "btn btn-sm btn-danger"}, "Stop");
+          stopBtn.addEventListener("click", async e => {
+            e.stopPropagation();
+            stopBtn.disabled = true; stopBtn.textContent = "…";
+            try { await apiCall(`/api/servers/${srv.id}/stop`, "POST"); await loadData(); await pollListOnce(); }
+            catch (err) { alert(err.message); stopBtn.disabled = false; stopBtn.textContent = "Stop"; }
+          });
+          const rstBtn = h("button", {class: "btn btn-sm btn-accent"}, "Restart");
+          rstBtn.addEventListener("click", async e => {
+            e.stopPropagation();
+            rstBtn.disabled = true; rstBtn.textContent = "…";
+            try { await apiCall(`/api/servers/${srv.id}/restart`, "POST"); await loadData(); await pollListOnce(); }
+            catch (err) { alert(err.message); rstBtn.disabled = false; rstBtn.textContent = "Restart"; }
+          });
+          actions.append(stopBtn, rstBtn);
+        } else {
+          const startBtn = h("button", {class: "btn btn-sm btn-primary"}, "Start");
+          startBtn.addEventListener("click", async e => {
+            e.stopPropagation();
+            startBtn.disabled = true; startBtn.textContent = "…";
+            try { await apiCall(`/api/profiles/${p.id}/start`, "POST"); await loadData(); await pollListOnce(); }
+            catch (err) { alert(`Start failed: ${err.message}`); startBtn.disabled = false; startBtn.textContent = "Start"; }
+          });
+          actions.append(startBtn);
+        }
+
+        const tr = h("tr", {},
+          h("td", {}, h("strong", {}, p.name)),
+          h("td", {class: "cell-model"}, modelLabel),
+          h("td", {class: "cell-metric"}, srv ? String(srv.pid || "—") : "—"),
+          h("td", {}, h("span", {class: `status-pill ${statusClass(status)}`}, status)),
+          h("td", {class: "cell-metric"}, sc.cpu  || "—"),
+          h("td", {class: "cell-metric"}, sc.mem  || "—"),
+          h("td", {class: "cell-metric"}, sc.genTps || "—"),
+          h("td", {}, actions)
+        );
+
+        // Clicking anywhere on the row (except action buttons) opens detail
+        tr.addEventListener("click", () => openProfileDetail(p.id));
+        return tr;
+      })
+    );
+  }
+
+  // Entry point called by nav / loadData
+  function loadServerLifecycleView() {
+    // If a profile is already targeted (e.g. dashboard card click pre-sets it),
+    // go straight to detail view rather than flashing the list first.
+    if (state.activeProfileIdInLifecycle) {
+      openProfileDetail(state.activeProfileIdInLifecycle);
+      return;
+    }
+    showListView();
+  }
+
+  function showListView() {
+    clearDetailIntervals();
+    lcListView.style.display   = "";
+    lcDetailView.style.display = "none";
+    state.activeProfileIdInLifecycle = null;
+    state.activeServerId = null;
+
+    // Render immediately with cached data, then start periodic poller
+    renderLifecycleList();
+    clearListInterval();
+    state.listPollInterval = setInterval(pollListOnce, 5000);
+    pollListOnce(); // first fetch right away
+  }
+
+  // ── DETAIL VIEW ──────────────────────────────────────────────────
+
+  window.openProfileDetail = function(profileID) {
+    state.activeProfileIdInLifecycle = profileID;
+    clearListInterval();
+    lcListView.style.display   = "none";
+    lcDetailView.style.display = "";
+
+    const p = state.profiles.find(pr => pr.id === profileID);
+    const m = p ? state.models.find(mod => mod.id === p.model_id) : null;
+
+    document.getElementById("detail-profile-name").textContent = p ? p.name : profileID;
+    document.getElementById("detail-model-name").textContent   = m ? m.display_name : "";
+
+    const gwPort = parseInt(window.location.port || "3100") + 1;
+    document.getElementById("stable-route-url").textContent =
+      `${window.location.protocol}//${window.location.hostname}:${gwPort}/profiles/${profileID}/v1/completions`;
+
+    const srv = state.servers.find(s => s.profile_id === profileID && s.status !== "stopped");
+    enterDetailState(profileID, srv || null);
+  };
+
+  function enterDetailState(profileID, srv) {
+    clearDetailIntervals();
+    const p = state.profiles.find(pr => pr.id === profileID);
+
+    const BLANK_METRICS = ["metric-prefill-speed","metric-gen-speed","metric-active-slots",
+                           "metric-inflight-reqs","metric-queued-reqs","metric-kv-ratio"];
+
+    if (!srv) {
+      // ── Stopped state ───────────────────────────────────────────
+      state.activeServerId = null;
+      btnStartSrv.style.display   = "inline-flex";
+      btnStopSrv.style.display    = "none";
+      btnRestartSrv.style.display = "none";
+
+      document.getElementById("srv-status-badge").className   = "tel-val status-pill gray";
+      document.getElementById("srv-status-badge").textContent = "stopped";
+      document.getElementById("srv-pid-val").textContent      = "—";
+      document.getElementById("srv-port-val").textContent     = p?.port || "—";
+      document.getElementById("srv-uptime-val").textContent   = "—";
+      document.getElementById("realtime-cpu").textContent     = "—";
+      document.getElementById("realtime-mem").textContent     = "—";
+      BLANK_METRICS.forEach(id => { document.getElementById(id).textContent = "—"; });
+
+      document.getElementById("server-log-console").replaceChildren(
+        h("div", {class: "terminal-line system-line"}, `[System] "${p?.name}" is offline. Click Start to launch it.`)
+      );
+    } else {
+      // ── Running / starting state ────────────────────────────────
+      state.activeServerId = srv.id;
+      state.lastLogCount   = 0;
+      btnStartSrv.style.display   = "none";
+      btnStopSrv.style.display    = "inline-flex";
+      btnRestartSrv.style.display = "inline-flex";
+
+      const sc = statusClass(srv.status);
+      document.getElementById("srv-status-badge").className   = `tel-val status-pill ${sc}`;
+      document.getElementById("srv-status-badge").textContent = srv.status;
+      document.getElementById("srv-pid-val").textContent      = srv.pid || "—";
+      document.getElementById("srv-port-val").textContent     = srv.port || "—";
+      document.getElementById("server-log-console").replaceChildren(
+        h("div", {class: "terminal-line system-line"}, "[System] Connecting to log stream…")
+      );
+
+      // Kick off real-time polling
+      pollServerLogs(srv.id);
+      pollServerTelemetry(srv.id);
+      state.logPollInterval   = setInterval(() => pollServerLogs(srv.id),   1000);
+      state.statsPollInterval = setInterval(() => pollServerTelemetry(srv.id), 1500);
+    }
+  }
+
+  // ── Back button ──────────────────────────────────────────────────
+  btnBackToList.addEventListener("click", () => showListView());
+
+  // ── Compat: dashboard server cards click into detail ─────────────
+  window.selectProfileInLifecycle = function(profileID) {
+    // Switch to lifecycle tab first if not already there
+    openProfileDetail(profileID);
+  };
+  window.selectServerInLifecycle = function(serverID) {
+    const srv = state.servers.find(s => s.id === serverID);
+    if (srv) openProfileDetail(srv.profile_id);
+  };
+
+  // Helper to start server from dashboard / profiles tab
   async function launchServerInstance(profileID) {
     try {
-      const srvRecord = await apiCall(`/api/profiles/${profileID}/start`, "POST");
+      await apiCall(`/api/profiles/${profileID}/start`, "POST");
       await loadData();
-      
-      // Select the profile in lifecycle tab
       state.activeProfileIdInLifecycle = profileID;
       document.querySelector("[data-target=servers]").click();
-      setTimeout(() => {
-        selectProfileInLifecycle(profileID);
-      }, 200);
+      setTimeout(() => openProfileDetail(profileID), 200);
     } catch (err) {
       alert(`Start failed: ${err.message}`);
     }
   }
 
-  // Populate profiles in the left lifecycle list
-  function loadServerLifecycleView() {
-    if (!lifecycleProfilesList) return;
-    if (state.profiles.length === 0) {
-      lifecycleProfilesList.replaceChildren(h("div", {class: "empty-state"}, "No saved profiles."));
-      lifecycleDetails.style.display = "none";
-      lifecycleEmpty.style.display = "block";
-      clearIntervals();
-      return;
+  // ── Detail view control buttons ──────────────────────────────────
+  btnStartSrv.addEventListener("click", async () => {
+    const profileID = state.activeProfileIdInLifecycle;
+    if (!profileID) return;
+    btnStartSrv.disabled = true;
+    const tn = [...btnStartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+    if (tn) tn.textContent = " Starting…";
+    try {
+      await apiCall(`/api/profiles/${profileID}/start`, "POST");
+      await loadData();
+      const srv = state.servers.find(s => s.profile_id === profileID && s.status !== "stopped");
+      enterDetailState(profileID, srv || null);
+    } catch (err) { alert(`Start failed: ${err.message}`); }
+    finally {
+      btnStartSrv.disabled = false;
+      if (tn) tn.textContent = " Start";
     }
+  });
 
-    refreshProfileSidebarCards();
-
-    // Auto-select active or first profile on first load
-    if (state.activeProfileIdInLifecycle) {
-      selectProfileInLifecycle(state.activeProfileIdInLifecycle);
-    } else if (state.profiles.length > 0) {
-      selectProfileInLifecycle(state.profiles[0].id);
+  btnStopSrv.addEventListener("click", async () => {
+    if (!state.activeServerId) return;
+    btnStopSrv.disabled = true;
+    const tn = [...btnStopSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+    if (tn) tn.textContent = " Stopping…";
+    try {
+      await apiCall(`/api/servers/${state.activeServerId}/stop`, "POST");
+      await loadData();
+      enterDetailState(state.activeProfileIdInLifecycle, null);
+    } catch (err) { alert(err.message); }
+    finally {
+      btnStopSrv.disabled = false;
+      if (tn) tn.textContent = " Stop";
     }
-  }
+  });
 
-  // Lightweight sidebar refresh — re-renders profile cards without touching the right
-  // panel or clearing polling intervals.  Called from pollServerTelemetry each tick.
-  function refreshProfileSidebarCards() {
-    if (!lifecycleProfilesList || state.profiles.length === 0) return;
-    // Re-use the same card-building logic as loadServerLifecycleView but skip the
-    // auto-select step so intervals are not disturbed.
-    const activeId = state.activeProfileIdInLifecycle;
-    lifecycleProfilesList.replaceChildren(
-      ...state.profiles.map(p => {
-        const activeSrv = state.servers.find(s => s.profile_id === p.id && s.status !== "stopped");
-        const status = activeSrv ? activeSrv.status : "stopped";
-        const isRunning = !!activeSrv;
-
-        let statusCls = "gray";
-        if (status === "healthy" || status === "ready") statusCls = "green";
-        else if (status === "crashed") statusCls = "red";
-        else if (status === "starting" || status === "loading") statusCls = "yellow";
-
-        const m = state.models.find(mod => mod.id === p.model_id);
-        const modelName = m ? m.display_name : "GGUF Model";
-        const metaParts = [modelName];
-        if (isRunning && activeSrv.port) metaParts.push(`port ${activeSrv.port}`);
-        if (isRunning && activeSrv.pid)  metaParts.push(`pid ${activeSrv.pid}`);
-
-        const actionBtns = document.createElement("div");
-        actionBtns.style.cssText = "display:flex; gap:4px; margin-top:6px;";
-
-        if (isRunning) {
-          const stopBtn = h("button", {class: "btn btn-sm btn-danger", style: "font-size:0.7rem; padding:2px 8px; height:22px;"}, "Stop");
-          stopBtn.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            stopBtn.disabled = true; stopBtn.textContent = "…";
-            try { await apiCall(`/api/servers/${activeSrv.id}/stop`, "POST"); await loadData(); loadServerLifecycleView(); }
-            catch (err) { alert(err.message); }
-          });
-          const restartBtn = h("button", {class: "btn btn-sm btn-accent", style: "font-size:0.7rem; padding:2px 8px; height:22px;"}, "Restart");
-          restartBtn.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            restartBtn.disabled = true; restartBtn.textContent = "…";
-            try { await apiCall(`/api/servers/${activeSrv.id}/restart`, "POST"); await loadData(); loadServerLifecycleView(); }
-            catch (err) { alert(err.message); }
-          });
-          actionBtns.append(stopBtn, restartBtn);
-        } else {
-          const startBtn = h("button", {class: "btn btn-sm btn-primary", style: "font-size:0.7rem; padding:2px 8px; height:22px;"}, "Start");
-          startBtn.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            startBtn.disabled = true; startBtn.textContent = "…";
-            try {
-              await apiCall(`/api/profiles/${p.id}/start`, "POST");
-              await loadData();
-              state.activeProfileIdInLifecycle = p.id;
-              loadServerLifecycleView();
-              selectProfileInLifecycle(p.id);
-            } catch (err) { alert(`Start failed: ${err.message}`); }
-          });
-          actionBtns.append(startBtn);
-        }
-
-        const card = h("div", {
-          class: `profile-item-btn ${activeId === p.id ? "active" : ""}`,
-          style: "display: flex; flex-direction: column; width: 100%; text-align: left; cursor: pointer;"
-        },
-          h("div", {style: "display:flex; justify-content:space-between; align-items:center; width:100%;"},
-            h("strong", {class: "profile-item-title"}, p.name),
-            h("span", {class: `status-pill ${statusCls}`, style: "font-size:0.65rem; padding: 2px 6px;"}, status)
-          ),
-          h("span", {class: "profile-item-meta"}, metaParts.join(" · ")),
-          actionBtns
-        );
-        card.addEventListener("click", () => selectProfileInLifecycle(p.id));
-        return card;
-      })
-    );
-  }
-
-  // Hook up select server by profile ID
-  window.selectProfileInLifecycle = function(profileID) {
-    state.activeProfileIdInLifecycle = profileID;
-    
-    // Highlight sidebar active item
-    if (lifecycleProfilesList) {
-      const buttons = lifecycleProfilesList.querySelectorAll(".profile-item-btn");
-      buttons.forEach((btn, idx) => {
-        const p = state.profiles[idx];
-        if (p && p.id === profileID) {
-          btn.classList.add("active");
-        } else {
-          btn.classList.remove("active");
-        }
-      });
+  btnRestartSrv.addEventListener("click", async () => {
+    if (!state.activeServerId) return;
+    btnRestartSrv.disabled = true;
+    const tn = [...btnRestartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+    if (tn) tn.textContent = " Restarting…";
+    try {
+      await apiCall(`/api/servers/${state.activeServerId}/restart`, "POST");
+      await loadData();
+      const srv = state.servers.find(s => s.profile_id === state.activeProfileIdInLifecycle && s.status !== "stopped");
+      enterDetailState(state.activeProfileIdInLifecycle, srv || null);
+    } catch (err) { alert(err.message); }
+    finally {
+      btnRestartSrv.disabled = false;
+      if (tn) tn.textContent = " Restart";
     }
+  });
 
-    const p = state.profiles.find(prof => prof.id === profileID);
-    if (!p) {
-      lifecycleDetails.style.display = "none";
-      lifecycleEmpty.style.display = "block";
-      clearIntervals();
-      return;
-    }
+  document.getElementById("btn-download-logs").addEventListener("click", () => {
+    if (state.activeServerId) window.open(`/api/servers/${state.activeServerId}/logs/download`);
+  });
 
-    lifecycleDetails.style.display = "block";
-    lifecycleEmpty.style.display = "none";
+  document.getElementById("btn-clear-terminal").addEventListener("click", () => {
+    const box = document.getElementById("server-log-console");
+    box.replaceChildren(h("div", {class: "terminal-line system-line"}, "[System] Console cleared."));
+    state.lastLogCount = 0;
+  });
 
-    const s = state.servers.find(srv => srv.profile_id === profileID && srv.status !== "stopped");
-    const gwPort = parseInt(window.location.port || "3100") + 1;
-    const gwUrl = `${window.location.protocol}//${window.location.hostname}:${gwPort}/profiles/${profileID}/v1/completions`;
-    document.getElementById("stable-route-url").textContent = gwUrl;
-
-    if (!s) {
-      // Server is stopped
-      clearIntervals();
-      state.activeServerId = null;
-
-      // Show start button, hide stop/restart
-      btnStartSrv.style.display = "inline-flex";
-      btnStopSrv.style.display = "none";
-      btnRestartSrv.style.display = "none";
-
-      document.getElementById("srv-status-badge").className = "tel-val status-pill gray";
-      document.getElementById("srv-status-badge").textContent = "stopped";
-      document.getElementById("srv-pid-val").textContent = "-";
-      document.getElementById("srv-port-val").textContent = p.port || "-";
-      document.getElementById("srv-uptime-val").textContent = "Stopped";
-
-      document.getElementById("realtime-cpu").textContent = "—";
-      document.getElementById("realtime-mem").textContent = "—";
-
-      // Clear inference metrics to blank (server not running)
-      ["metric-prefill-speed","metric-gen-speed","metric-active-slots",
-       "metric-inflight-reqs","metric-queued-reqs","metric-kv-ratio"].forEach(id => {
-        document.getElementById(id).textContent = "—";
-      });
-
-      // Console placeholder
-      document.getElementById("server-log-console").replaceChildren(
-        h("div", {class: "terminal-line system-line"}, `[System] Server for profile "${p.name}" is currently offline.`),
-        h("div", {class: "terminal-line system-line"}, `[System] Click "Start Server" to boot it using GGUF model: ${p.model_id}`)
-      );
-    } else {
-      // Server is running/starting/crashed
-      state.activeServerId = s.id;
-      state.lastLogCount = 0;
-      const consoleBox = document.getElementById("server-log-console");
-      if (consoleBox) {
-        consoleBox.replaceChildren(h("div", {class: "terminal-line system-line"}, "[System] Connecting to console stream..."));
-      }
-
-      // Hide start button, show stop/restart
-      btnStartSrv.style.display = "none";
-      btnStopSrv.style.display = "inline-flex";
-      btnRestartSrv.style.display = "inline-flex";
-
-      const statusCls = s.status === "healthy" || s.status === "ready" ? "green" : (s.status === "crashed" ? "red" : "yellow");
-      document.getElementById("srv-status-badge").className = `tel-val status-pill ${statusCls}`;
-      document.getElementById("srv-status-badge").textContent = s.status;
-      document.getElementById("srv-pid-val").textContent = s.pid || "-";
-      document.getElementById("srv-port-val").textContent = s.port;
-
-      // Start polling
-      clearIntervals();
-      pollServerLogs(s.id);
-      pollServerTelemetry(s.id);
-      state.logPollInterval = setInterval(() => pollServerLogs(s.id), 1000);
-      state.statsPollInterval = setInterval(() => pollServerTelemetry(s.id), 1500);
-    }
-  };
-
-  // Keep compatibility for clicking on servers from dashboard
-  window.selectServerInLifecycle = function(serverID) {
-    const s = state.servers.find(srv => srv.id === serverID);
-    if (s) {
-      selectProfileInLifecycle(s.profile_id);
-    }
-  };
-
-  function clearIntervals() {
-    if (state.logPollInterval) clearInterval(state.logPollInterval);
-    if (state.statsPollInterval) clearInterval(state.statsPollInterval);
-  }
-
+  // ── Real-time log poller (detail view only) ──────────────────────
   async function pollServerLogs(serverID) {
     try {
       const logs = await apiCall(`/api/servers/${serverID}/logs`);
-      const consoleBox = document.getElementById("server-log-console");
-      if (!consoleBox) return;
+      const box  = document.getElementById("server-log-console");
+      if (!box) return;
 
       if (logs.length === 0) {
         state.lastLogCount = 0;
-        consoleBox.replaceChildren(h("div", {class: "terminal-line system-line"}, "[System] Log empty. Server starting..."));
+        box.replaceChildren(h("div", {class: "terminal-line system-line"}, "[System] Log empty — server starting…"));
         return;
       }
+      if (logs.length < state.lastLogCount) { state.lastLogCount = 0; box.replaceChildren(); }
 
-      // If logs shrank or changed (e.g. server restarted), clear and reset
-      if (logs.length < state.lastLogCount) {
-        state.lastLogCount = 0;
-        consoleBox.replaceChildren();
-      }
-
-      // Only perform work if there are new lines to display
       if (logs.length > state.lastLogCount) {
-        // Detect if user is scrolled near the bottom (within 40px) to lock scrolling
-        const isAtBottom = consoleBox.scrollHeight - consoleBox.scrollTop - consoleBox.clientHeight < 40;
-
-        // Slice only the new logs to append
-        const newLines = logs.slice(state.lastLogCount);
-        const fragment = document.createDocumentFragment();
-
-        newLines.forEach(line => {
-          let c = "terminal-line";
-          if (line.includes("[System]") || line.includes("LLAMA SERVER STUDIO")) c = "terminal-line system-line";
-          if (line.includes("error") || line.includes("fail") || line.includes("ERR")) c = "terminal-line err-line";
+        const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+        const frag = document.createDocumentFragment();
+        logs.slice(state.lastLogCount).forEach(line => {
+          let cls = "terminal-line";
+          if (line.includes("[System]") || line.includes("LLAMA SERVER STUDIO")) cls += " system-line";
+          else if (/error|fail|ERR/i.test(line)) cls += " err-line";
           const div = document.createElement("div");
-          div.className = c;
+          div.className = cls;
           div.textContent = line;
-          fragment.appendChild(div);
+          frag.appendChild(div);
         });
-
-        // If it was the very first load or logs were just cleared, replace placeholder completely
-        if (state.lastLogCount === 0) {
-          consoleBox.replaceChildren(fragment);
-        } else {
-          consoleBox.appendChild(fragment);
-        }
-
+        if (state.lastLogCount === 0) box.replaceChildren(frag); else box.appendChild(frag);
         state.lastLogCount = logs.length;
-
-        // Scroll to bottom only if they were already at the bottom (prevents hijacking user scroll)
-        if (isAtBottom || state.lastLogCount === newLines.length) {
-          consoleBox.scrollTop = consoleBox.scrollHeight;
-        }
+        if (atBottom) box.scrollTop = box.scrollHeight;
       }
     } catch {
-      document.getElementById("server-log-console").replaceChildren(
+      document.getElementById("server-log-console")?.replaceChildren(
         h("div", {class: "terminal-line err-line"}, "[System] Failed to read disk logs.")
       );
     }
   }
 
+  // ── Real-time telemetry poller (detail view only) ────────────────
   async function pollServerTelemetry(serverID) {
     try {
-      // Reload server config silently to refresh status
       state.servers = await apiCall("/api/servers");
-      // Refresh just the sidebar cards so status pills and port/PID stay current
-      // without calling selectProfileInLifecycle (which would clear polling intervals)
-      refreshProfileSidebarCards();
-      const s = state.servers.find(srv => srv.id === serverID);
-      if (s) {
-        const statusCls = s.status === "healthy" || s.status === "ready" ? "green" : (s.status === "crashed" ? "red" : "yellow");
-        document.getElementById("srv-status-badge").className = `tel-val status-pill ${statusCls}`;
-        document.getElementById("srv-status-badge").textContent = s.status;
-        document.getElementById("srv-pid-val").textContent = s.pid || "-";
-        
-        // Calculate uptime
-        if (s.started_at && s.pid > 0) {
-          const elapsed = Math.floor((new Date() - new Date(s.started_at)) / 1000);
-          const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
-          const secs = (elapsed % 60).toString().padStart(2, '0');
-          document.getElementById("srv-uptime-val").textContent = `${mins}:${secs}`;
+      const srv = state.servers.find(s => s.id === serverID);
+      if (srv) {
+        const sc = statusClass(srv.status);
+        document.getElementById("srv-status-badge").className   = `tel-val status-pill ${sc}`;
+        document.getElementById("srv-status-badge").textContent = srv.status;
+        document.getElementById("srv-pid-val").textContent      = srv.pid || "—";
+        if (srv.started_at && srv.pid > 0) {
+          const elapsed = Math.floor((Date.now() - new Date(srv.started_at)) / 1000);
+          const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+          const ss = String(elapsed % 60).padStart(2, "0");
+          document.getElementById("srv-uptime-val").textContent = `${mm}:${ss}`;
         } else {
-          document.getElementById("srv-uptime-val").textContent = "Stopped";
+          document.getElementById("srv-uptime-val").textContent = "—";
         }
       }
 
@@ -1646,126 +1712,41 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("realtime-cpu").textContent = `${parseFloat(last.cpu_percent).toFixed(1)}%`;
         document.getElementById("realtime-mem").textContent = `${(last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 
-        // Check whether this server was launched with --metrics.
-        // profile_snapshot.args is the arg list captured at launch time.
-        // When --metrics is absent the endpoint never existed, so scrapeMetrics()
-        // returns an empty map and all token/slot fields will be 0 — show "—"
-        // instead of misleading zeros.
-        const srvRecord = state.servers.find(srv => srv.id === serverID);
-        const hasMetrics = Array.isArray(srvRecord?.profile_snapshot?.args) &&
-                           srvRecord.profile_snapshot.args.includes("--metrics");
+        const srvRec   = state.servers.find(s => s.id === serverID);
+        const hasMetrics = Array.isArray(srvRec?.profile_snapshot?.args) &&
+                           srvRec.profile_snapshot.args.includes("--metrics");
 
         if (hasMetrics) {
-          const prefillVal = last.prompt_tokens_per_second || 0;
-          const genVal = last.generation_tokens_per_second || 0;
-          const busySlots = last.busy_slots || 0;
-          const totalSlots = last.slot_count || 0;
-          const inflight = last.requests_processing || 0;
-          const queued = last.requests_deferred || 0;
-          const obsCtx = last.ctx_size_observed || 0;
-
-          document.getElementById("metric-prefill-speed").textContent = `${prefillVal.toFixed(1)} t/s`;
-          document.getElementById("metric-gen-speed").textContent = `${genVal.toFixed(1)} t/s`;
-          document.getElementById("metric-active-slots").textContent = `${busySlots} / ${totalSlots}`;
-          document.getElementById("metric-inflight-reqs").textContent = `${inflight} Active`;
-          document.getElementById("metric-queued-reqs").textContent = `${queued} Queued`;
-          document.getElementById("metric-kv-ratio").textContent = `${obsCtx} tokens`;
+          document.getElementById("metric-prefill-speed").textContent = `${(last.prompt_tokens_per_second     || 0).toFixed(1)} t/s`;
+          document.getElementById("metric-gen-speed").textContent     = `${(last.generation_tokens_per_second || 0).toFixed(1)} t/s`;
+          document.getElementById("metric-active-slots").textContent  = `${last.busy_slots || 0} / ${last.slot_count || 0}`;
+          document.getElementById("metric-inflight-reqs").textContent = `${last.requests_processing || 0} Active`;
+          document.getElementById("metric-queued-reqs").textContent   = `${last.requests_deferred   || 0} Queued`;
+          document.getElementById("metric-kv-ratio").textContent      = `${last.ctx_size_observed   || 0} tokens`;
         } else {
-          // No --metrics endpoint — show blank placeholders
-          document.getElementById("metric-prefill-speed").textContent = "—";
-          document.getElementById("metric-gen-speed").textContent = "—";
-          document.getElementById("metric-active-slots").textContent = "—";
-          document.getElementById("metric-inflight-reqs").textContent = "—";
-          document.getElementById("metric-queued-reqs").textContent = "—";
-          document.getElementById("metric-kv-ratio").textContent = "—";
+          ["metric-prefill-speed","metric-gen-speed","metric-active-slots",
+           "metric-inflight-reqs","metric-queued-reqs","metric-kv-ratio"].forEach(id => {
+            document.getElementById(id).textContent = "—";
+          });
         }
 
-        // Update charts history (CPU/RSS always available)
         state.telemetryHistory.cpu = samples.map(sa => sa.cpu_percent);
-        state.telemetryHistory.mem = samples.map(sa => sa.memory_rss_bytes / 1024 / 1024 / 1024); // GB
+        state.telemetryHistory.mem = samples.map(sa => sa.memory_rss_bytes / 1024 / 1024 / 1024);
         drawTelemetryCanvas();
+
+        // Also update the list stats cache so the list stays fresh when we go back
+        if (srvRec) {
+          const hasM = Array.isArray(srvRec?.profile_snapshot?.args) &&
+                       srvRec.profile_snapshot.args.includes("--metrics");
+          statsCache[srvRec.profile_id] = {
+            cpu:    `${parseFloat(last.cpu_percent).toFixed(1)}%`,
+            mem:    `${(last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2)} GB`,
+            genTps: hasM ? `${(last.generation_tokens_per_second || 0).toFixed(1)} t/s` : "—",
+          };
+        }
       }
-    } catch {}
+    } catch { /* keep existing values on transient error */ }
   }
-
-  // Start click (Lifecycle)
-  btnStartSrv.addEventListener("click", async () => {
-    const profileID = state.activeProfileIdInLifecycle;
-    if (!profileID) return;
-    
-    const icon = btnStartSrv.querySelector(".btn-icon-svg");
-    if (icon) icon.classList.add("spin");
-    const textNode = [...btnStartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
-    if (textNode) textNode.textContent = " Starting...";
-    btnStartSrv.disabled = true;
-    
-    try {
-      await apiCall(`/api/profiles/${profileID}/start`, "POST");
-      await loadData();
-      selectProfileInLifecycle(profileID);
-    } catch (err) {
-      alert(`Start failed: ${err.message}`);
-    } finally {
-      if (icon) icon.classList.remove("spin");
-      if (textNode) textNode.textContent = " Start Server";
-      btnStartSrv.disabled = false;
-    }
-  });
-
-  // Stop click
-  btnStopSrv.addEventListener("click", async () => {
-    if (state.activeServerId) {
-      const icon = btnStopSrv.querySelector(".btn-icon-svg");
-      if (icon) icon.classList.add("spin");
-      const textNode = [...btnStopSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
-      if (textNode) textNode.textContent = " Stopping...";
-      btnStopSrv.disabled = true;
-      try {
-        await apiCall(`/api/servers/${state.activeServerId}/stop`, "POST");
-        await loadData();
-        selectProfileInLifecycle(state.activeProfileIdInLifecycle);
-      } catch (err) {
-        alert(err.message);
-      } finally {
-        if (icon) icon.classList.remove("spin");
-        if (textNode) textNode.textContent = " Stop Server";
-        btnStopSrv.disabled = false;
-      }
-    }
-  });
-
-  // Restart click
-  btnRestartSrv.addEventListener("click", async () => {
-    if (state.activeServerId) {
-      const icon = btnRestartSrv.querySelector(".btn-icon-svg");
-      if (icon) icon.classList.add("spin");
-      const textNode = [...btnRestartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
-      if (textNode) textNode.textContent = " Restarting...";
-      btnRestartSrv.disabled = true;
-      try {
-        await apiCall(`/api/servers/${state.activeServerId}/restart`, "POST");
-        await loadData();
-        selectProfileInLifecycle(state.activeProfileIdInLifecycle);
-      } catch (err) {
-        alert(err.message);
-      } finally {
-        if (icon) icon.classList.remove("spin");
-        if (textNode) textNode.textContent = " Restart Server";
-        btnRestartSrv.disabled = false;
-      }
-    }
-  });
-
-  // Download Logs click
-  document.getElementById("btn-download-logs").addEventListener("click", () => {
-    if (state.activeServerId) {
-      window.open(`/api/servers/${state.activeServerId}/logs/download`);
-    }
-  });
-
-  document.getElementById("btn-clear-terminal").addEventListener("click", () => {
-    document.getElementById("server-log-console").innerHTML = `<div class="terminal-line system-line">[System] Cleared output console. Logs will stream on next tick.</div>`;
-  });
 
   // Canvas Sparks Graph drawing
   function drawTelemetryCanvas() {
@@ -1840,7 +1821,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- 7. QUICK PROMPT TEST PLAYGROUND ---
 
-  const testBtn = document.getElementById("btn-submit-test");
+  const testBtn = document.getElementById("btn-test-srv");
   const testOutputBox = document.getElementById("test-response-output");
   const testPromptText = document.getElementById("test-prompt");
 
@@ -2069,73 +2050,131 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function loadSecurityView() {
     await loadSettings();
-    const tokenVal = state.settings.gateway_token || "";
-    document.getElementById("sec-gateway-token").value = tokenVal;
-    updateCurlExample(tokenVal);
+    updateSecurityStatusBadge(state.settings.gateway_token_set || false);
+    updateCurlExample(state.settings.gateway_token_set || false);
   }
 
-  function updateCurlExample(token) {
-    const curlBox = document.getElementById("sec-curl-example");
-    const activeProfileId = state.profiles.length > 0 ? state.profiles[0].id : "{profile_id}";
-    let authHeader = "";
-    if (token) {
-      authHeader = `  -H "Authorization: Bearer ${token}" \\\n`;
+  function updateSecurityStatusBadge(isSet) {
+    const badge = document.getElementById("sec-token-status-badge");
+    const btnDisable = document.getElementById("btn-disable-gateway");
+    if (badge) {
+      badge.textContent = isSet ? "Token set" : "Not set";
+      badge.className = isSet ? "status-pill green" : "status-pill";
     }
+    if (btnDisable) btnDisable.style.display = isSet ? "inline-flex" : "none";
+  }
+
+  function updateCurlExample(tokenIsSet) {
+    const curlBox = document.getElementById("sec-curl-example");
+    if (!curlBox) return;
+    const activeProfileId = state.profiles.length > 0 ? state.profiles[0].id : "{profile_id}";
     const gwPort = parseInt(window.location.port || "3100") + 1;
-    curlBox.textContent = `curl -X POST http://${window.location.hostname || "127.0.0.1"}:${gwPort}/profiles/${activeProfileId}/v1/chat/completions \\\n` +
-      authHeader +
+    const authLine = tokenIsSet
+      ? `  -H "Authorization: Bearer <your-gateway-token>" \\\n`
+      : "";
+    curlBox.textContent =
+      `curl -X POST http://${window.location.hostname || "127.0.0.1"}:${gwPort}/profiles/${activeProfileId}/v1/chat/completions \\\n` +
+      authLine +
       `  -H "Content-Type: application/json" \\\n` +
       `  -d '{\n` +
       `    "messages": [{"role": "user", "content": "Hello!"}]\n` +
       `  }'`;
   }
 
-  const btnToggleToken = document.getElementById("btn-toggle-sec-token");
-  const tokenInput = document.getElementById("sec-gateway-token");
-  if (btnToggleToken && tokenInput) {
-    btnToggleToken.addEventListener("click", () => {
-      if (tokenInput.type === "password") {
-        tokenInput.type = "text";
-        btnToggleToken.textContent = "Hide";
-      } else {
-        tokenInput.type = "password";
-        btnToggleToken.textContent = "Show";
-      }
-    });
+  // Generate New Token — auto-generates a sk- token, saves immediately, shows once
+  function generateToken() {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let suffix = "";
+    for (let i = 0; i < 32; i++) suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+    return `sk-${suffix}`;
   }
 
   const btnGenToken = document.getElementById("btn-gen-sec-token");
-  if (btnGenToken && tokenInput) {
-    btnGenToken.addEventListener("click", () => {
-      const chars = "abcdef0123456789";
-      let suffix = "";
-      for (let i = 0; i < 32; i++) {
-        suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+  if (btnGenToken) {
+    btnGenToken.addEventListener("click", async () => {
+      btnGenToken.disabled = true;
+      const originalText = btnGenToken.textContent;
+      btnGenToken.textContent = " Generating…";
+
+      const freshToken = generateToken();
+
+      try {
+        const res = await apiCall("/api/settings/security", "POST", { gateway_token: freshToken });
+        const isSet = res.gateway_token_set || false;
+
+        state.settings.gateway_token_set = isSet;
+        updateSecurityStatusBadge(isSet);
+        updateCurlExample(isSet);
+
+        // Show the plaintext token once — it cannot be recovered from the backend
+        if (isSet) {
+          const banner = document.getElementById("sec-copy-banner");
+          const tokenDisplay = document.getElementById("sec-copy-token-val");
+          if (banner && tokenDisplay) {
+            tokenDisplay.textContent = freshToken;
+            banner.style.display = "block";
+          }
+        }
+      } catch (err) {
+        alert("Failed to generate gateway token: " + err.message);
+      } finally {
+        btnGenToken.textContent = originalText;
+        btnGenToken.disabled = false;
       }
-      const freshToken = `sk-${suffix}`;
-      tokenInput.value = freshToken;
-      updateCurlExample(freshToken);
-      tokenInput.type = "text";
-      btnToggleToken.textContent = "Hide";
     });
   }
 
-  const btnSaveSecurity = document.getElementById("btn-save-security");
-  if (btnSaveSecurity && tokenInput) {
-    btnSaveSecurity.addEventListener("click", async () => {
-      btnSaveSecurity.disabled = true;
-      const originalText = btnSaveSecurity.textContent;
-      btnSaveSecurity.textContent = " Saving...";
-      const tokenVal = tokenInput.value.trim();
+  // Disable Gateway — sends an empty token to clear the hash
+  const btnDisableGateway = document.getElementById("btn-disable-gateway");
+  if (btnDisableGateway) {
+    btnDisableGateway.addEventListener("click", async () => {
+      if (!confirm("Disable the gateway? All clients using the current token will lose access.")) return;
+      btnDisableGateway.disabled = true;
+
       try {
-        state.settings = await apiCall("/api/settings/security", "POST", { gateway_token: tokenVal });
-        updateCurlExample(tokenVal);
-        alert("Security settings saved successfully! Gateway Bearer token is active across all profiles.");
+        const res = await apiCall("/api/settings/security", "POST", { gateway_token: "" });
+        const isSet = res.gateway_token_set || false;
+
+        state.settings.gateway_token_set = isSet;
+        updateSecurityStatusBadge(isSet);
+        updateCurlExample(isSet);
+
+        // Hide copy banner if visible
+        const banner = document.getElementById("sec-copy-banner");
+        if (banner) {
+          banner.style.display = "none";
+          const tokenDisplay = document.getElementById("sec-copy-token-val");
+          if (tokenDisplay) tokenDisplay.textContent = "";
+        }
       } catch (err) {
-        alert("Failed to save security settings: " + err.message);
+        alert("Failed to disable gateway: " + err.message);
       } finally {
-        btnSaveSecurity.textContent = originalText;
-        btnSaveSecurity.disabled = false;
+        btnDisableGateway.disabled = false;
+      }
+    });
+  }
+
+  // Copy-banner buttons
+  const btnCopyNewToken = document.getElementById("btn-copy-new-token");
+  if (btnCopyNewToken) {
+    btnCopyNewToken.addEventListener("click", () => {
+      const val = document.getElementById("sec-copy-token-val")?.textContent || "";
+      navigator.clipboard.writeText(val).then(() => {
+        btnCopyNewToken.textContent = "Copied!";
+        setTimeout(() => { btnCopyNewToken.textContent = "Copy to clipboard"; }, 2000);
+      });
+    });
+  }
+
+  const btnDismissBanner = document.getElementById("btn-dismiss-copy-banner");
+  if (btnDismissBanner) {
+    btnDismissBanner.addEventListener("click", () => {
+      const banner = document.getElementById("sec-copy-banner");
+      if (banner) {
+        banner.style.display = "none";
+        // Wipe the token from the DOM so it doesn't linger in memory
+        const tokenDisplay = document.getElementById("sec-copy-token-val");
+        if (tokenDisplay) tokenDisplay.textContent = "";
       }
     });
   }
