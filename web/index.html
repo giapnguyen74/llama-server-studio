@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Llama Server Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">🦙</div>
+        <div class="brand-name">
+          <h1>Llama Server Studio</h1>
+          <span>v1.0.0</span>
+        </div>
+      </div>
+      <nav class="nav-links">
+        <button class="nav-btn active" data-target="dashboard">
+          <span class="icon">📊</span> Dashboard
+        </button>
+        <button class="nav-btn" data-target="models">
+          <span class="icon">📁</span> Model Catalog
+        </button>
+        <button class="nav-btn" data-target="profiles">
+          <span class="icon">🛠️</span> Profile Builder
+        </button>
+        <button class="nav-btn" data-target="servers">
+          <span class="icon">⚡</span> Server Lifecycle
+        </button>
+        <button class="nav-btn" data-target="benchmarks">
+          <span class="icon">📈</span> Benchmarks
+        </button>
+        <button class="nav-btn" data-target="settings">
+          <span class="icon">⚙️</span> Settings
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="status-indicator-container">
+          <span class="status-dot green" id="global-status-dot"></span>
+          <span id="global-binary-status">Binary Validated</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- Section: Dashboard -->
+      <section id="section-dashboard" class="content-section active">
+        <header class="section-header">
+          <h2>Dashboard</h2>
+          <p>Local operation overview for GGUF serve-definitions and active runtimes.</p>
+        </header>
+
+        <div class="stats-grid">
+          <div class="stat-card pink-glow">
+            <h3>Discovered Models</h3>
+            <p class="stat-val" id="dash-models-count">0</p>
+            <span class="stat-desc">across configured scan directories</span>
+          </div>
+          <div class="stat-card cyan-glow">
+            <h3>Saved Profiles</h3>
+            <p class="stat-val" id="dash-profiles-count">0</p>
+            <span class="stat-desc">customizable serving configurations</span>
+          </div>
+          <div class="stat-card purple-glow">
+            <h3>Running Servers</h3>
+            <p class="stat-val" id="dash-active-count">0</p>
+            <span class="stat-desc">managed child llama-server instances</span>
+          </div>
+          <div class="stat-card red-glow">
+            <h3>Crashed Servers</h3>
+            <p class="stat-val" id="dash-crashed-count">0</p>
+            <span class="stat-desc">unexpected exits in current session</span>
+          </div>
+        </div>
+
+        <div class="dashboard-columns">
+          <div class="dash-column-left">
+            <div class="glass-card">
+              <div class="card-header">
+                <h3>Active Servers Telemetry</h3>
+                <span class="card-badge green" id="active-servers-badge">0 Active</span>
+              </div>
+              <div class="server-list-container" id="dash-servers-list">
+                <div class="empty-state">No servers currently active. Go to Profile Builder to start one!</div>
+              </div>
+            </div>
+          </div>
+          <div class="dash-column-right">
+            <div class="glass-card">
+              <div class="card-header">
+                <h3>Recent Benchmark Metrics</h3>
+              </div>
+              <div class="benchmark-list-container" id="dash-bench-list">
+                <div class="empty-state">No benchmark runs recorded.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Model Catalog -->
+      <section id="section-models" class="content-section">
+        <header class="section-header">
+          <div class="header-main">
+            <h2>Model Catalog</h2>
+            <button class="btn btn-primary" id="btn-rescan-models">🔄 Rescan Directories</button>
+          </div>
+          <p>Scanned inventories of GGUF quantizations from disk and Hugging Face local directories.</p>
+        </header>
+
+        <div class="filter-panel glass-card">
+          <div class="search-box-container">
+            <input type="text" id="model-search" placeholder="Search models by filename, repo ID, or architecture...">
+          </div>
+          <div class="filters-row">
+            <select id="filter-model-source">
+              <option value="">All Sources</option>
+              <option value="local_dir">Local Directories</option>
+              <option value="huggingface_cache">Hugging Face Cache</option>
+              <option value="manual">Manually Added</option>
+            </select>
+            <select id="filter-model-quant">
+              <option value="">All Quantizations</option>
+            </select>
+            <select id="filter-model-arch">
+              <option value="">All Architectures</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="glass-card table-card">
+          <table class="data-table" id="models-table">
+            <thead>
+              <tr>
+                <th>Display Name</th>
+                <th>Source</th>
+                <th>Quant</th>
+                <th>Size</th>
+                <th>Architecture</th>
+                <th>Context</th>
+                <th>Capabilities</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="models-table-body">
+              <tr>
+                <td colspan="8" class="loading-state">Loading model catalog...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Section: Profile Builder -->
+      <section id="section-profiles" class="content-section">
+        <header class="section-header">
+          <h2>Profile Builder</h2>
+          <p>Assemble custom serve profiles by configuring parameters or inputting raw CLI flags.</p>
+        </header>
+
+        <div class="profile-columns">
+          <!-- Profiles sidebar selection -->
+          <div class="profile-sidebar glass-card">
+            <div class="card-header">
+              <h3>Saved Profiles</h3>
+              <button class="btn btn-sm btn-primary" id="btn-create-new-profile">➕ New</button>
+            </div>
+            <div class="profile-list" id="profiles-list-container">
+              <div class="empty-state">No saved profiles.</div>
+            </div>
+          </div>
+
+          <!-- Profile Editor form -->
+          <div class="profile-editor glass-card" id="profile-editor-container" style="display:none;">
+            <div class="editor-header">
+              <h3 id="profile-editor-title">New Profile</h3>
+              <div class="editor-actions">
+                <button class="btn btn-secondary" id="btn-export-profile-json">📥 JSON</button>
+                <button class="btn btn-secondary" id="btn-export-profile-sh">🐚 Shell</button>
+                <button class="btn btn-danger" id="btn-delete-profile" style="display:none;">🗑️ Delete</button>
+              </div>
+            </div>
+
+            <form id="profile-form">
+              <input type="hidden" id="edit-profile-id">
+              <div class="form-row">
+                <div class="form-group col-6">
+                  <label for="profile-name">Profile Name *</label>
+                  <input type="text" id="profile-name" required placeholder="e.g. Llama3-QuickServe">
+                </div>
+                <div class="form-group col-6">
+                  <label for="profile-model">Model *</label>
+                  <select id="profile-model" required>
+                    <option value="">Select a Model...</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="profile-desc">Notes & Description</label>
+                <textarea id="profile-desc" rows="2" placeholder="Describe hardware context, quant comparison logs..."></textarea>
+              </div>
+
+              <div class="form-tabs">
+                <button type="button" class="tab-btn active" data-tab="simple">Simple Settings</button>
+                <button type="button" class="tab-btn" data-tab="advanced">Advanced (Raw Flags)</button>
+              </div>
+
+              <!-- Simple Parameters Tab -->
+              <div class="tab-content active" id="profile-tab-simple">
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="simple-ctx">Context Length (Tokens)</label>
+                    <input type="number" id="simple-ctx" value="2048">
+                    <span class="field-hint">Outputs: -c</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="simple-ngl">GPU VRAM Layers</label>
+                    <input type="number" id="simple-ngl" value="0">
+                    <span class="field-hint">Outputs: -ngl (VRAM offloading)</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="simple-threads">CPU Threads</label>
+                    <input type="number" id="simple-threads" value="4">
+                    <span class="field-hint">Outputs: -t (Recommended physical cores)</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="simple-batch">Batch Size</label>
+                    <input type="number" id="simple-batch" value="512">
+                    <span class="field-hint">Outputs: -b</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="simple-parallel">Parallel slots</label>
+                    <input type="number" id="simple-parallel" value="1">
+                    <span class="field-hint">Outputs: -np (Concurrently served sessions)</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="simple-port-policy">Port Policy</label>
+                    <select id="simple-port-policy">
+                      <option value="auto">Auto Allocate</option>
+                      <option value="fixed">Fixed Port</option>
+                    </select>
+                  </div>
+                  <div class="form-group" id="group-fixed-port" style="display:none;">
+                    <label for="simple-fixed-port">Fixed Port Number</label>
+                    <input type="number" id="simple-fixed-port" value="8080">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Advanced Settings Tab -->
+              <div class="tab-content" id="profile-tab-advanced">
+                <div class="form-group">
+                  <label for="adv-args">Custom command-line flags (JSON string array format)</label>
+                  <textarea id="adv-args" rows="4" placeholder='["--flash-attn", "--embedding", "-cb"]'></textarea>
+                  <span class="field-hint">Enter raw CLI parameter arrays manually. These take priority over simple fields.</span>
+                </div>
+                <div class="form-row">
+                  <div class="form-group col-6">
+                    <label for="adv-workdir">Working Directory</label>
+                    <input type="text" id="adv-workdir" placeholder="e.g. /opt/llama.cpp">
+                  </div>
+                  <div class="form-group col-6">
+                    <label for="adv-host">Default Host Binding</label>
+                    <input type="text" id="adv-host" value="127.0.0.1">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Live CLI Command Preview -->
+              <div class="command-preview-box">
+                <div class="preview-header">
+                  <span>CLI Command Preview</span>
+                  <button type="button" class="btn-copy" id="btn-copy-cli-command">📋 Copy</button>
+                </div>
+                <pre class="command-text" id="cli-command-text">llama-server ...</pre>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="btn-save-profile">💾 Save Profile</button>
+                <button type="button" class="btn btn-accent" id="btn-save-run-profile">⚡ Save & Launch Server</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Server Lifecycle -->
+      <section id="section-servers" class="content-section">
+        <header class="section-header">
+          <h2>Server Lifecycle</h2>
+          <p>Observe running server metrics, inspect logs, run manual quick tests and trigger restarts.</p>
+        </header>
+
+        <div class="server-lifecycle-tabs">
+          <select id="server-lifecycle-select">
+            <option value="">Select a Running or Crashed Server...</option>
+          </select>
+        </div>
+
+        <div id="lifecycle-details-container" style="display:none;">
+          <!-- Server details grid -->
+          <div class="lifecycle-layout-grid">
+            <!-- Left panel: Telemetry stats, logs, prompt test -->
+            <div class="lifecycle-main">
+              <!-- Stats overview card -->
+              <div class="telemetry-bar-grid">
+                <div class="telemetry-item">
+                  <span class="tel-label">Status</span>
+                  <span class="tel-val status-pill green" id="srv-status-badge">Healthy</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label">PID</span>
+                  <span class="tel-val" id="srv-pid-val">0</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label">Port</span>
+                  <span class="tel-val" id="srv-port-val">0</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label">Uptime</span>
+                  <span class="tel-val" id="srv-uptime-val">00:00</span>
+                </div>
+              </div>
+
+              <!-- Action Controls -->
+              <div class="server-control-row">
+                <button class="btn btn-danger" id="btn-stop-srv">🛑 Stop Server</button>
+                <button class="btn btn-accent" id="btn-restart-srv">🔄 Restart Server</button>
+                <span class="stable-route-text">Stable route: <code id="stable-route-url">/profiles/{id}/v1/completions</code></span>
+              </div>
+
+              <!-- Terminal log component -->
+              <div class="glass-card term-card">
+                <div class="card-header">
+                  <h3>llama-server Console Output</h3>
+                  <div class="term-actions">
+                    <button class="btn btn-sm btn-secondary" id="btn-download-logs">💾 Download Log</button>
+                    <button class="btn btn-sm btn-secondary" id="btn-clear-terminal">🗑️ Clear UI</button>
+                  </div>
+                </div>
+                <div class="terminal-body" id="server-log-console">
+                  <div class="terminal-line system-line">[System] Fetching logs...</div>
+                </div>
+              </div>
+
+              <!-- Quick test panel -->
+              <div class="glass-card quick-test-card">
+                <div class="card-header">
+                  <h3>Quick Test Console</h3>
+                </div>
+                <div class="quick-test-body">
+                  <div class="test-row">
+                    <div class="form-group col-4">
+                      <label for="test-temp">Temperature</label>
+                      <input type="number" id="test-temp" value="0.7" step="0.1">
+                    </div>
+                    <div class="form-group col-4">
+                      <label for="test-tokens">Max Tokens</label>
+                      <input type="number" id="test-tokens" value="256">
+                    </div>
+                    <div class="form-group col-4 d-flex-align">
+                      <label class="checkbox-container">
+                        <input type="checkbox" id="test-stream" checked>
+                        <span>Stream tokens</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="test-prompt">Prompt</label>
+                    <textarea id="test-prompt" rows="3" placeholder="Explain the difference between Llama 3 and Mistral..."></textarea>
+                  </div>
+                  
+                  <div class="test-actions">
+                    <button class="btn btn-primary" id="btn-submit-test">🚀 Send Inference Request</button>
+                    <button class="btn btn-secondary" id="btn-copy-curl">📋 Copy curl</button>
+                  </div>
+
+                  <div class="output-preview-container">
+                    <label>Response Content</label>
+                    <div class="completion-output-box" id="test-response-output">
+                      <span class="placeholder-text">Inference response output will stream here...</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right panel: RAM charts & benchmarks comparison -->
+            <div class="lifecycle-sidebar">
+              <div class="glass-card telemetry-chart-card">
+                <div class="card-header">
+                  <h3>Resource Utilization</h3>
+                </div>
+                <div class="telemetry-stat-bar">
+                  <div class="stat-col">
+                    <span class="label">CPU Usage</span>
+                    <span class="value" id="realtime-cpu">0%</span>
+                  </div>
+                  <div class="stat-col">
+                    <span class="label">RSS Memory</span>
+                    <span class="value" id="realtime-mem">0.00 GB</span>
+                  </div>
+                </div>
+                <div class="canvas-wrapper">
+                  <canvas id="chart-canvas" width="300" height="150"></canvas>
+                </div>
+              </div>
+
+              <!-- Run immediate benchmark -->
+              <div class="glass-card bench-card">
+                <div class="card-header">
+                  <h3>Run Benchmark</h3>
+                </div>
+                <div class="bench-body">
+                  <div class="form-group">
+                    <label for="bench-prompt">Select Benchmark Prompt</label>
+                    <select id="bench-prompt">
+                      <option value="quicksort">Write quicksort implementation in Go</option>
+                      <option value="poem">Write a brief creative poem about a local LLM</option>
+                      <option value="explain">Explain quantum computing simply to a child</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="bench-repeats">Repetitions</label>
+                    <input type="number" id="bench-repeats" value="3">
+                  </div>
+                  <button class="btn btn-accent w-100" id="btn-trigger-bench">📈 Execute Performance Run</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="empty-state" id="lifecycle-empty-state">
+          No server is selected. Choose an active, stopped or crashed server to begin diagnostic monitoring.
+        </div>
+      </section>
+
+      <!-- Section: Benchmark History -->
+      <section id="section-benchmarks" class="content-section">
+        <header class="section-header">
+          <h2>Benchmark Comparison</h2>
+          <p>Review throughput and latency details to compare quantizations and memory settings.</p>
+        </header>
+
+        <div class="glass-card table-card">
+          <table class="data-table" id="benchmarks-table">
+            <thead>
+              <tr>
+                <th>Benchmark ID</th>
+                <th>Profile</th>
+                <th>Model</th>
+                <th>Prompt Snapshot</th>
+                <th>Avg Speed (T/s)</th>
+                <th>Avg Latency</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="benchmarks-table-body">
+              <tr>
+                <td colspan="9" class="loading-state">Loading benchmarks history...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Section: Settings -->
+      <section id="section-settings" class="content-section">
+        <header class="section-header">
+          <h2>Settings & Diagnostics</h2>
+          <p>Adjust system file folders path and execute executable validation reports.</p>
+        </header>
+
+        <div class="settings-grid">
+          <!-- CLI Paths card -->
+          <div class="glass-card">
+            <div class="card-header">
+              <h3>System Paths</h3>
+            </div>
+            <div class="card-body">
+              <form id="settings-form">
+                <div class="form-group">
+                  <label for="settings-server-bin">llama-server Binary Path</label>
+                  <input type="text" id="settings-server-bin" placeholder="e.g. /usr/local/bin/llama-server">
+                  <span class="field-hint">Location of the llama.cpp server compiled binary file.</span>
+                </div>
+                <div class="form-group">
+                  <label for="settings-bin-dir">llama.cpp Build Bin Directory (Optional)</label>
+                  <input type="text" id="settings-bin-dir" placeholder="e.g. /opt/llama.cpp/build/bin">
+                </div>
+                <div class="form-group">
+                  <label for="settings-models-dirs">Model Scan Directories (Comma Separated)</label>
+                  <textarea id="settings-models-dirs" rows="2" placeholder="e.g. /Users/username/models, /opt/llm/models"></textarea>
+                </div>
+                
+                <div class="form-group">
+                  <label class="checkbox-container">
+                    <input type="checkbox" id="settings-scan-hf">
+                    <span>Scan Hugging Face Hub cache directories</span>
+                  </label>
+                </div>
+
+                <div class="form-group" id="settings-group-hf-dirs">
+                  <label for="settings-hf-dirs">HF Cache Directories (Comma Separated)</label>
+                  <textarea id="settings-hf-dirs" rows="2" placeholder="e.g. /Users/username/.cache/huggingface/hub"></textarea>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group col-6">
+                    <label for="settings-port-start">Port Range Start</label>
+                    <input type="number" id="settings-port-start" value="41000">
+                  </div>
+                  <div class="form-group col-6">
+                    <label for="settings-port-end">Port Range End</label>
+                    <input type="number" id="settings-port-end" value="41999">
+                  </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary">💾 Save Configuration</button>
+              </form>
+            </div>
+          </div>
+
+          <!-- Diagnostics card -->
+          <div class="glass-card">
+            <div class="card-header">
+              <h3>Diagnostic Verification Report</h3>
+              <button class="btn btn-sm btn-accent" id="btn-run-diag">Run Diagnostic Tests</button>
+            </div>
+            <div class="card-body">
+              <div class="diagnostic-box" id="diagnostic-report-output">
+                <div class="diag-line">[Diag] Idle. Click 'Run Diagnostic Tests' to execute.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Standard popup overlay Modal component for showing metadata or exports -->
+  <div class="modal-overlay" id="info-modal" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title">Model Metadata</h3>
+        <button class="btn-close" id="btn-close-modal">✖</button>
+      </div>
+      <div class="modal-body" id="modal-content">
+        <!-- Rendered metadata map or code text -->
+      </div>
+    </div>
+  </div>
+</body>
+</html>
