@@ -121,6 +121,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/models/rescan", auth(s.handleRescanModels))
 	mux.HandleFunc("GET /api/models/{model_id}", auth(s.handleGetModel))
 	mux.HandleFunc("POST /api/models/{model_id}/hide", auth(s.handleHideModel))
+	mux.HandleFunc("POST /api/models/download", auth(s.handleDownloadModel))
+	mux.HandleFunc("GET /api/models/downloads", auth(s.handleGetModelDownloads))
 
 	// 4. Profiles API
 	mux.HandleFunc("GET /api/profiles", auth(s.handleListProfiles))
@@ -383,6 +385,42 @@ func (s *Server) handleHideModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+func (s *Server) handleDownloadModel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ModelString string `json:"model_string"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	modelStr := strings.TrimSpace(req.ModelString)
+	if modelStr == "" {
+		writeJSONError(w, http.StatusBadRequest, "model_string is required")
+		return
+	}
+
+	if len(s.cfg.ModelsDirs) == 0 || strings.TrimSpace(s.cfg.ModelsDirs[0]) == "" {
+		writeJSONError(w, http.StatusBadRequest, "no models directory configured in config.json")
+		return
+	}
+
+	fileName, err := models.StartModelDownload(modelStr, s.cfg.ModelsDirs[0], s.db)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":        true,
+		"file_name": fileName,
+	})
+}
+
+func (s *Server) handleGetModelDownloads(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, models.GetActiveDownloads())
 }
 
 // --- Profiles handlers ---

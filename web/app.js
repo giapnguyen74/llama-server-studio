@@ -458,6 +458,146 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- 4. MODEL CATALOG SECTION ---
 
+  const hfDownloadInput = document.getElementById("hf-download-input");
+  const btnStartHfDownload = document.getElementById("btn-start-hf-download");
+  const hfDownloadsProgressContainer = document.getElementById("hf-downloads-progress-container");
+
+  let hfDownloadsPollInterval = null;
+  let isDownloadingActive = false;
+
+  btnStartHfDownload.addEventListener("click", async () => {
+    const modelStr = hfDownloadInput.value.trim();
+    if (!modelStr) {
+      alert("Please provide a HuggingFace model string in format repo_id:quantization");
+      return;
+    }
+
+    const icon = btnStartHfDownload.querySelector(".btn-icon-svg");
+    if (icon) icon.classList.add("spin");
+    const textNode = [...btnStartHfDownload.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
+    if (textNode) textNode.textContent = " Initiating...";
+    btnStartHfDownload.disabled = true;
+
+    try {
+      const res = await apiCall("/api/models/download", "POST", { model_string: modelStr });
+      alert(`Model download initiated successfully!\nDownloading file: ${res.file_name}`);
+      hfDownloadInput.value = "";
+      startHfDownloadsPolling();
+    } catch (err) {
+      alert(`Failed to start download: ${err.message}`);
+    } finally {
+      if (icon) icon.classList.remove("spin");
+      if (textNode) textNode.textContent = " Start Download";
+      btnStartHfDownload.disabled = false;
+    }
+  });
+
+  async function pollHfDownloads() {
+    try {
+      const list = await apiCall("/api/models/downloads");
+      if (list.length === 0) {
+        isDownloadingActive = false;
+        hfDownloadsProgressContainer.style.display = "none";
+        stopHfDownloadsPolling();
+        return;
+      }
+
+      const active = list.filter(dl => dl.status === "pending" || dl.status === "downloading");
+      if (active.length > 0) {
+        isDownloadingActive = true;
+      } else {
+        if (isDownloadingActive) {
+          isDownloadingActive = false;
+          // Stop polling immediately so we don't query during the 3 second visibility window
+          stopHfDownloadsPolling();
+          
+          // Let the user see "Completed" or "Failed" for 3 seconds, then hide and refresh catalog
+          setTimeout(async () => {
+            hfDownloadsProgressContainer.style.display = "none";
+            await loadData();
+            loadModelsTable();
+          }, 3000);
+        } else {
+          // No active downloads and we weren't actively downloading.
+          // Hide progress, stop polling, and exit to avoid infinite reload loop.
+          hfDownloadsProgressContainer.style.display = "none";
+          stopHfDownloadsPolling();
+          return;
+        }
+      }
+
+      hfDownloadsProgressContainer.style.display = "flex";
+      hfDownloadsProgressContainer.replaceChildren(
+        ...list.map(dl => {
+          const loadedGB = (dl.bytes_loaded / 1024 / 1024 / 1024).toFixed(2);
+          const totalGB = (dl.bytes_total / 1024 / 1024 / 1024).toFixed(2);
+          
+          let progressPercent = dl.progress.toFixed(1) + "%";
+          let statusText = dl.status;
+          let statusClass = "yellow";
+          
+          if (dl.status === "completed") {
+            statusText = "Completed";
+            statusClass = "green";
+          } else if (dl.status === "failed") {
+            statusText = `Failed: ${dl.error || 'Unknown'}`;
+            statusClass = "red";
+          } else if (dl.status === "downloading") {
+            statusText = `Downloading (${progressPercent})`;
+            statusClass = "blue";
+          } else {
+            statusText = "Pending";
+            statusClass = "gray";
+          }
+
+          return h("div", {
+            class: "glass-card",
+            style: "padding: 14px; border: 1px solid rgba(255,255,255,0.03); display: flex; flex-direction: column; gap: 8px;"
+          },
+            h("div", {style: "display: flex; justify-content: space-between; align-items: center; gap: 12px;"},
+              h("div", {style: "flex: 1; min-width: 0;"},
+                h("strong", {style: "display: block; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"}, dl.file_name || dl.model_string),
+                h("span", {style: "font-size: 0.75rem; color: var(--text-dim);"}, `${loadedGB} GB / ${totalGB} GB`)
+              ),
+              h("span", {class: `status-pill ${statusClass}`}, statusText)
+            ),
+            h("div", {
+              style: "width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden;"
+            },
+              h("div", {
+                style: `width: ${dl.progress}%; height: 100%; background: var(--accent-purple); transition: width 0.3s ease;`
+              })
+            )
+          );
+        })
+      );
+    } catch (err) {
+      console.error("Failed to poll HuggingFace downloads", err);
+    }
+  }
+
+  function startHfDownloadsPolling() {
+    if (hfDownloadsPollInterval) return;
+    pollHfDownloads();
+    hfDownloadsPollInterval = setInterval(pollHfDownloads, 1000);
+  }
+
+  function stopHfDownloadsPolling() {
+    if (hfDownloadsPollInterval) {
+      clearInterval(hfDownloadsPollInterval);
+      hfDownloadsPollInterval = null;
+    }
+  }
+
+  // Auto trigger downloads check when catalog tab is opened
+  const originalLoadModelsTable = window.loadModelsTable || (() => {});
+  window.loadModelsTable = function() {
+    startHfDownloadsPolling();
+    // Call the original list filtering logic
+    const sInput = document.getElementById("model-search");
+    if (sInput) filterModels();
+  };
+
   const searchInput = document.getElementById("model-search");
   const filterSource = document.getElementById("filter-model-source");
   const filterQuant = document.getElementById("filter-model-quant");
