@@ -247,10 +247,15 @@ document.addEventListener("DOMContentLoaded", () => {
       return await response.json();
     } catch (err) {
       console.error(`API Call failed (${url}):`, err);
-      // TypeError with no HTTP response = CORS block or server unreachable.
-      // Show the config guide so the user knows how to allow cross-origin access.
       if (err instanceof TypeError) {
-        showCorsGuide();
+        // TypeError can be due to:
+        // 1. The server is completely offline/closed (e.g. Go backend stopped or restarting).
+        // 2. A genuine CORS block (only possible if page protocol is file:// or a different origin).
+        // If the page is loaded over http/https and requests are same-origin (relative),
+        // the failure is strictly because the server is offline. Do not show the CORS guide.
+        if (window.location.protocol === "file:") {
+          showCorsGuide();
+        }
       }
       throw err;
     }
@@ -805,7 +810,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const args = p.args;
     for (let i = 0; i < args.length; i++) {
       if (args[i] === "-c" && i + 1 < args.length) ctx = parseInt(args[i+1]);
-      if (args[i] === "-ngl" && i + 1 < args.length) ngl = parseInt(args[i+1]);
+      if (args[i] === "-ngl" && i + 1 < args.length) {
+        const val = args[i+1];
+        ngl = (val === "auto" || val === "all") ? val : (parseInt(val) || 0);
+      }
       if (args[i] === "-t" && i + 1 < args.length) threads = parseInt(args[i+1]);
       if (args[i] === "-b" && i + 1 < args.length) batch = parseInt(args[i+1]);
       if (args[i] === "-np" && i + 1 < args.length) parallel = parseInt(args[i+1]);
@@ -1405,6 +1413,11 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       // Server is running/starting/crashed
       state.activeServerId = s.id;
+      state.lastLogCount = 0;
+      const consoleBox = document.getElementById("server-log-console");
+      if (consoleBox) {
+        consoleBox.replaceChildren(h("div", {class: "terminal-line system-line"}, "[System] Connecting to console stream..."));
+      }
 
       // Hide start button, show stop/restart
       btnStartSrv.style.display = "none";
@@ -1443,23 +1456,52 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const logs = await apiCall(`/api/servers/${serverID}/logs`);
       const consoleBox = document.getElementById("server-log-console");
-      
+      if (!consoleBox) return;
+
       if (logs.length === 0) {
+        state.lastLogCount = 0;
         consoleBox.replaceChildren(h("div", {class: "terminal-line system-line"}, "[System] Log empty. Server starting..."));
-      } else {
-        consoleBox.replaceChildren(
-          ...logs.map(line => {
-            let c = "terminal-line";
-            if (line.includes("[System]") || line.includes("LLAMA SERVER STUDIO")) c = "terminal-line system-line";
-            if (line.includes("error") || line.includes("fail") || line.includes("ERR")) c = "terminal-line err-line";
-            const div = document.createElement("div");
-            div.className = c;
-            div.textContent = line; // secure
-            return div;
-          })
-        );
-        // Auto Scroll to bottom
-        consoleBox.scrollTop = consoleBox.scrollHeight;
+        return;
+      }
+
+      // If logs shrank or changed (e.g. server restarted), clear and reset
+      if (logs.length < state.lastLogCount) {
+        state.lastLogCount = 0;
+        consoleBox.replaceChildren();
+      }
+
+      // Only perform work if there are new lines to display
+      if (logs.length > state.lastLogCount) {
+        // Detect if user is scrolled near the bottom (within 40px) to lock scrolling
+        const isAtBottom = consoleBox.scrollHeight - consoleBox.scrollTop - consoleBox.clientHeight < 40;
+
+        // Slice only the new logs to append
+        const newLines = logs.slice(state.lastLogCount);
+        const fragment = document.createDocumentFragment();
+
+        newLines.forEach(line => {
+          let c = "terminal-line";
+          if (line.includes("[System]") || line.includes("LLAMA SERVER STUDIO")) c = "terminal-line system-line";
+          if (line.includes("error") || line.includes("fail") || line.includes("ERR")) c = "terminal-line err-line";
+          const div = document.createElement("div");
+          div.className = c;
+          div.textContent = line;
+          fragment.appendChild(div);
+        });
+
+        // If it was the very first load or logs were just cleared, replace placeholder completely
+        if (state.lastLogCount === 0) {
+          consoleBox.replaceChildren(fragment);
+        } else {
+          consoleBox.appendChild(fragment);
+        }
+
+        state.lastLogCount = logs.length;
+
+        // Scroll to bottom only if they were already at the bottom (prevents hijacking user scroll)
+        if (isAtBottom || state.lastLogCount === newLines.length) {
+          consoleBox.scrollTop = consoleBox.scrollHeight;
+        }
       }
     } catch {
       document.getElementById("server-log-console").replaceChildren(
