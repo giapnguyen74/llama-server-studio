@@ -3,7 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/subtle"
+
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -234,19 +234,19 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	// Return a sanitised view — credentials (hashes, plaintext tokens) are never sent to the browser.
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"listen":             s.cfg.Listen,
-		"llama_server_bin":   s.cfg.LlamaServerBin,
-		"llama_bin_dir":      s.cfg.LlamaBinDir,
-		"models_dirs":        s.cfg.ModelsDirs,
-		"scan_hf_cache":      s.cfg.ScanHFCache,
-		"hf_cache_dirs":      s.cfg.HFCacheDirs,
-		"port_range_start":   s.cfg.PortRangeStart,
-		"port_range_end":     s.cfg.PortRangeEnd,
-		"data_dir":           s.cfg.DataDir,
-		"allowed_origins":    s.cfg.AllowedOrigins,
+		"listen":           s.cfg.Listen,
+		"llama_server_bin": s.cfg.LlamaServerBin,
+		"llama_bin_dir":    s.cfg.LlamaBinDir,
+		"models_dirs":      s.cfg.ModelsDirs,
+		"scan_hf_cache":    s.cfg.ScanHFCache,
+		"hf_cache_dirs":    s.cfg.HFCacheDirs,
+		"port_range_start": s.cfg.PortRangeStart,
+		"port_range_end":   s.cfg.PortRangeEnd,
+		"data_dir":         s.cfg.DataDir,
+		"allowed_origins":  s.cfg.AllowedOrigins,
 		// Credential status only — never the actual value or hash.
-		"gateway_token_set":  s.cfg.HasGatewayToken(),
-		"admin_cred_set":     s.cfg.HasAdminCredential(),
+		"gateway_token_set": s.cfg.HasGatewayToken(),
+		"admin_cred_set":    s.cfg.HasAdminCredential(),
 	})
 }
 
@@ -295,9 +295,9 @@ func (s *Server) handleUpdateSecurity(w http.ResponseWriter, r *http.Request) {
 
 	// Never echo the token back — only confirm whether one is set.
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"ok":               true,
+		"ok":                true,
 		"gateway_token_set": s.cfg.HasGatewayToken(),
-		"proxy_enabled":    s.cfg.HasGatewayToken(),
+		"proxy_enabled":     s.cfg.HasGatewayToken(),
 	})
 }
 
@@ -316,10 +316,10 @@ func (s *Server) handleValidateLlama(w http.ResponseWriter, r *http.Request) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	
+
 	err := cmd.Run()
 	output := stdout.String() + stderr.String()
-	
+
 	valid := false
 	versionStr := ""
 	if err == nil || strings.Contains(output, "llama-server") || strings.Contains(output, "usage:") {
@@ -334,9 +334,9 @@ func (s *Server) handleValidateLlama(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := map[string]interface{}{
-		"bin_valid":       valid,
-		"path_resolved":   bin,
-		"version_output":  versionStr,
+		"bin_valid":      valid,
+		"path_resolved":  bin,
+		"version_output": versionStr,
 	}
 	if !valid {
 		if err != nil {
@@ -861,4 +861,3 @@ func isAllowedOrigin(origin string, allowed []string) bool {
 	}
 	return false
 }
-
