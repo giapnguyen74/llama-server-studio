@@ -115,6 +115,16 @@
             <p class="stat-val" id="dash-crashed-count">0</p>
             <span class="stat-desc">unexpected exits in current session</span>
           </div>
+          <div class="stat-card cyan-glow">
+            <h3>Instances CPU Load</h3>
+            <p class="stat-val" id="dash-instances-cpu">0.0%</p>
+            <span class="stat-desc">combined CPU load of child processes</span>
+          </div>
+          <div class="stat-card purple-glow">
+            <h3>Instances RSS Memory</h3>
+            <p class="stat-val" id="dash-instances-mem">0.00 GB</p>
+            <span class="stat-desc">combined RAM memory footprint</span>
+          </div>
         </div>
 
         <div class="dashboard-columns">
@@ -737,7 +747,7 @@
                     </div>
                     <div class="form-group">
                       <label for="test-tokens">Max Tokens</label>
-                      <input type="number" id="test-tokens" min="1" max="8192" value="128">
+                      <input type="number" id="test-tokens" min="1" max="65536" value="2048">
                     </div>
                     <div class="form-group inline-checkbox" style="margin-bottom:0; display:flex; align-items:center; gap:8px;">
                       <input type="checkbox" id="test-stream" checked>

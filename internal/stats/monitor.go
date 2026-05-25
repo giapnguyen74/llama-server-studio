@@ -21,10 +21,24 @@ type metricsHistory struct {
 	generationTokensTotal int64
 }
 
+type SystemMetrics struct {
+	InstancesCPUSum float64 `json:"instances_cpu_sum"`
+	InstancesMemSum int64   `json:"instances_mem_sum"`
+	UpdatedAt       string  `json:"updated_at"`
+}
+
 var (
-	metricsCache = make(map[string]metricsHistory)
-	cacheMu      sync.Mutex
+	metricsCache  = make(map[string]metricsHistory)
+	cacheMu       sync.Mutex
+	systemMetrics SystemMetrics
+	sysMetricsMu  sync.RWMutex
 )
+
+func GetSystemMetrics() SystemMetrics {
+	sysMetricsMu.RLock()
+	defer sysMetricsMu.RUnlock()
+	return systemMetrics
+}
 
 // StartMonitor launches a background ticker that records resource usage.
 func StartMonitor(ctx context.Context, db *storage.DB, s *process.Supervisor) {
@@ -39,6 +53,9 @@ func StartMonitor(ctx context.Context, db *storage.DB, s *process.Supervisor) {
 			return
 		case <-ticker.C:
 			servers := db.ListServers()
+			var cpuSum float64
+			var memSum int64
+
 			for _, srv := range servers {
 				if srv.Status != "healthy" && srv.Status != "starting" {
 					continue
@@ -49,6 +66,8 @@ func StartMonitor(ctx context.Context, db *storage.DB, s *process.Supervisor) {
 				if err != nil {
 					continue // skip if error or process just exited
 				}
+				cpuSum += cpu
+				memSum += rss
 
 				// 2. Fetch metrics
 				metrics := scrapeMetrics(client, srv.Host, srv.Port)
@@ -137,6 +156,14 @@ func StartMonitor(ctx context.Context, db *storage.DB, s *process.Supervisor) {
 
 				_ = db.AddStatsSample(sample)
 			}
+
+			sysMetricsMu.Lock()
+			systemMetrics = SystemMetrics{
+				InstancesCPUSum: cpuSum,
+				InstancesMemSum: memSum,
+				UpdatedAt:       time.Now().Format(time.RFC3339),
+			}
+			sysMetricsMu.Unlock()
 		}
 	}
 }

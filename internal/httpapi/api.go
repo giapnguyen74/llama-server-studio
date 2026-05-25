@@ -26,6 +26,7 @@ import (
 	"llama-server-studio/internal/profiles"
 	"llama-server-studio/internal/router"
 	"llama-server-studio/internal/storage"
+	"llama-server-studio/internal/stats"
 )
 
 // Server encapsulates our API services and handles routing.
@@ -140,6 +141,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/servers/{server_id}/logs", auth(s.handleGetServerLogs))
 	mux.HandleFunc("GET /api/servers/{server_id}/logs/download", auth(s.handleDownloadServerLogs))
 	mux.HandleFunc("GET /api/servers/{server_id}/stats", auth(s.handleGetServerStats))
+	mux.HandleFunc("GET /api/system/metrics", auth(s.handleGetSystemMetrics))
 	mux.HandleFunc("POST /api/servers/{server_id}/test", auth(s.handleTestServer))
 
 	// 6. Benchmarks API
@@ -654,6 +656,10 @@ func (s *Server) handleGetServerStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, s.db.GetServerStats(id, limit))
+}
+
+func (s *Server) handleGetSystemMetrics(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, stats.GetSystemMetrics())
 }
 
 func (s *Server) handleTestServer(w http.ResponseWriter, r *http.Request) {

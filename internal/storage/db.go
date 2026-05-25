@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
-	"time"
 )
 
 // Model represents a local GGUF file discovered by the studio.
@@ -181,20 +180,27 @@ func Open(dataDir string) (*DB, error) {
 		return nil, err
 	}
 
-	// Sanity clean-up: if any servers are "starting", "healthy", etc. on launch, reset them to "stopped"
-	// UNLESS the process is actually still alive (orphaned from previous studio run).
+	// Sanity clean-up: delete stopped/crashed records or dead orphaned servers.
 	dirty := false
-	nowStr := time.Now().Format(time.RFC3339)
 	for id, s := range db.servers {
-		if s.Status != "stopped" && s.Status != "crashed" {
+		// 1. Purge servers belonging to profiles that no longer exist
+		if _, exists := db.profiles[s.ProfileID]; !exists {
+			delete(db.servers, id)
+			dirty = true
+			continue
+		}
+
+		// 2. Purge dead or stopped/crashed server processes
+		if s.Status == "stopped" || s.Status == "crashed" {
+			delete(db.servers, id)
+			dirty = true
+		} else {
 			if s.PID > 0 && processAlive(s.PID) {
-				// Leave the record; supervisor will reattach.
+				// Process is alive and running; keep it for reattaching
 				continue
 			}
-			s.Status = "stopped"
-			s.PID = 0
-			s.UpdatedAt = nowStr
-			db.servers[id] = s
+			// Process is dead; clean it up
+			delete(db.servers, id)
 			dirty = true
 		}
 	}
@@ -347,6 +353,15 @@ func (db *DB) DeleteProfile(id string) error {
 		return errors.New("profile not found")
 	}
 	delete(db.profiles, id)
+
+	// Clean up any servers associated with this profile
+	for sID, s := range db.servers {
+		if s.ProfileID == id {
+			delete(db.servers, sID)
+		}
+	}
+	_ = db.save("servers.json", db.servers)
+
 	return db.save("profiles.json", db.profiles)
 }
 

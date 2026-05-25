@@ -316,7 +316,12 @@ document.addEventListener("DOMContentLoaded", () => {
   function startGlobalPolling() {
     // Poll running states and stats counters every 4 seconds
     setInterval(() => {
-      loadData(false); // silent reload in background
+      const activeTab = document.querySelector(".nav-btn.active")?.dataset.target;
+      const silent = (activeTab !== "dashboard" && activeTab !== "servers");
+      loadData(!silent); // update UI if dashboard or servers is active
+      if (activeTab === "dashboard") {
+        loadDashboardSystemMetrics();
+      }
     }, 4000);
   }
 
@@ -327,7 +332,12 @@ document.addEventListener("DOMContentLoaded", () => {
       state.servers = await apiCall("/api/servers");
       
       if (updateUI) {
-        loadDashboard();
+        const activeTab = document.querySelector(".nav-btn.active")?.dataset.target;
+        if (activeTab === "dashboard") {
+          loadDashboard();
+        } else if (activeTab === "servers") {
+          renderLifecycleList();
+        }
         updateGlobalDiagnosticState();
       }
     } catch (err) {
@@ -350,7 +360,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- 3. DASHBOARD SECTION ---
 
+  async function loadDashboardSystemMetrics() {
+    try {
+      const metrics = await apiCall("/api/system/metrics");
+      const cpuVal = document.getElementById("dash-instances-cpu");
+      const memVal = document.getElementById("dash-instances-mem");
+      if (cpuVal) {
+        cpuVal.textContent = parseFloat(metrics.instances_cpu_sum || 0).toFixed(1) + "%";
+      }
+      if (memVal) {
+        memVal.textContent = (parseFloat(metrics.instances_mem_sum || 0) / 1024 / 1024 / 1024).toFixed(2) + " GB";
+      }
+    } catch (err) {
+      console.error("Failed to load dashboard system metrics", err);
+    }
+  }
+
   function loadDashboard() {
+    loadDashboardSystemMetrics();
     document.getElementById("dash-models-count").textContent = state.models.filter(m => !m.hidden).length;
     document.getElementById("dash-profiles-count").textContent = state.profiles.length;
     
@@ -768,8 +795,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("adv-log-verbose").checked = false;
     document.getElementById("adv-diag-perf").checked = true;
     document.getElementById("adv-workdir").value = "";
-    document.getElementById("adv-host").value = "";
-    document.getElementById("adv-args").value = "";
+    document.getElementById("adv-host").value = "127.0.0.1";
+    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots", "--jinja"]';
 
     if (name === "balanced") {
       document.getElementById("simple-ctx").value = "8192";
@@ -1933,7 +1960,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!prompt) return;
 
     const temp = parseFloat(document.getElementById("test-temp").value) || 0.7;
-    const tokens = parseInt(document.getElementById("test-tokens").value) || 128;
+    const tokens = parseInt(document.getElementById("test-tokens").value) || 2048;
     const stream = document.getElementById("test-stream").checked;
 
     const icon = testBtn.querySelector(".btn-icon-svg");
@@ -2012,7 +2039,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const host = s.host === "0.0.0.0" ? "127.0.0.1" : s.host;
     const prompt = testPromptText.value.trim() || "Hello local llama!";
     const temp = parseFloat(document.getElementById("test-temp").value) || 0.7;
-    const tokens = parseInt(document.getElementById("test-tokens").value) || 128;
+    const tokens = parseInt(document.getElementById("test-tokens").value) || 2048;
 
     const curl = `curl http://${host}:${s.port}/completion \\\n` +
       `  -H "Content-Type: application/json" \\\n` +
