@@ -344,8 +344,21 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate stable UUID alternative for Go standard library
-	p.ID = generateUUID()
+	baseID := slugify(p.Name)
+	id := baseID
+	counter := 1
+	for {
+		if _, exists := s.db.GetProfile(id); !exists {
+			break
+		}
+		id = fmt.Sprintf("%s-%d", baseID, counter)
+		counter++
+	}
+	p.ID = id
+	if p.Routing != nil {
+		p.Routing.PublicPath = fmt.Sprintf("/profiles/%s/v1", p.ID)
+	}
+
 	p.CreatedAt = time.Now().Format(time.RFC3339)
 	p.UpdatedAt = time.Now().Format(time.RFC3339)
 
@@ -408,8 +421,21 @@ func (s *Server) handleCloneProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p.ID = generateUUID()
 	p.Name = p.Name + " (Clone)"
+	baseID := slugify(p.Name)
+	newID := baseID
+	counter := 1
+	for {
+		if _, exists := s.db.GetProfile(newID); !exists {
+			break
+		}
+		newID = fmt.Sprintf("%s-%d", baseID, counter)
+		counter++
+	}
+	p.ID = newID
+	if p.Routing != nil {
+		p.Routing.PublicPath = fmt.Sprintf("/profiles/%s/v1", p.ID)
+	}
 	p.CreatedAt = time.Now().Format(time.RFC3339)
 	p.UpdatedAt = time.Now().Format(time.RFC3339)
 
@@ -722,6 +748,26 @@ func generateUUID() string {
 	bytes := make([]byte, 16)
 	_, _ = rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+func slugify(name string) string {
+	s := strings.ToLower(name)
+	s = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '-'
+	}, s)
+
+	// Collapse multiple consecutive hyphens
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	s = strings.Trim(s, "-")
+	if s == "" {
+		s = "profile"
+	}
+	return s
 }
 
 // bearerToken extracts a Bearer token from the Authorization header or ?token= query param.

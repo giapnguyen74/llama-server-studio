@@ -390,7 +390,7 @@ document.addEventListener("DOMContentLoaded", () => {
   btnRescan.addEventListener("click", async () => {
     const icon = btnRescan.querySelector(".btn-icon-svg");
     if (icon) icon.classList.add("spin");
-    const textNode = [...btnRescan.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    const textNode = [...btnRescan.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
     if (textNode) textNode.textContent = " Scanning Disk...";
     btnRescan.disabled = true;
     try {
@@ -1553,7 +1553,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     const icon = btnStartSrv.querySelector(".btn-icon-svg");
     if (icon) icon.classList.add("spin");
-    const textNode = [...btnStartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    const textNode = [...btnStartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
     if (textNode) textNode.textContent = " Starting...";
     btnStartSrv.disabled = true;
     
@@ -1575,7 +1575,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (state.activeServerId) {
       const icon = btnStopSrv.querySelector(".btn-icon-svg");
       if (icon) icon.classList.add("spin");
-      const textNode = [...btnStopSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+      const textNode = [...btnStopSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
       if (textNode) textNode.textContent = " Stopping...";
       btnStopSrv.disabled = true;
       try {
@@ -1597,7 +1597,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (state.activeServerId) {
       const icon = btnRestartSrv.querySelector(".btn-icon-svg");
       if (icon) icon.classList.add("spin");
-      const textNode = [...btnRestartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+      const textNode = [...btnRestartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
       if (textNode) textNode.textContent = " Restarting...";
       btnRestartSrv.disabled = true;
       try {
@@ -1703,7 +1703,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const icon = testBtn.querySelector(".btn-icon-svg");
     if (icon) icon.classList.add("spin");
-    const textNode = [...testBtn.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    const textNode = [...testBtn.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
     if (textNode) textNode.textContent = " Querying...";
     testBtn.disabled = true;
     testOutputBox.innerHTML = `<span class="placeholder-text">Executing request...</span>`;
@@ -1808,7 +1808,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const icon = btnTriggerBench.querySelector(".btn-icon-svg");
     if (icon) icon.classList.add("spin");
-    const textNode = [...btnTriggerBench.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    const textNode = [...btnTriggerBench.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
     if (textNode) textNode.textContent = " Benchmarking...";
     btnTriggerBench.disabled = true;
     
