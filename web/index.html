@@ -273,6 +273,17 @@
                 <textarea id="profile-desc" rows="2" placeholder="Describe hardware context, quant comparison logs..."></textarea>
               </div>
 
+              <!-- VRAM Estimate Banner -->
+              <div id="vram-estimate-card" style="display:none; margin-bottom:18px; padding:12px 16px; border-radius:var(--radius-lg); border:1px solid var(--border-soft); background:var(--background-muted);">
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path></svg>
+                  <span style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-dim);">VRAM Estimate</span>
+                  <span id="vram-total" style="font-size:1.05rem; font-weight:700; color:var(--accent-cyan);">—</span>
+                  <span id="vram-quant-badge" class="status-pill yellow" style="font-size:0.72rem; margin-left:2px;"></span>
+                  <span id="vram-breakdown" style="font-size:0.77rem; color:var(--text-dim); margin-left:4px;"></span>
+                </div>
+              </div>
+
               <div class="form-tabs">
                 <button type="button" class="tab-btn active" data-tab="simple">Simple Settings</button>
                 <button type="button" class="tab-btn" data-tab="advanced">Advanced (Raw Flags)</button>
@@ -570,14 +581,13 @@
                   <th>Model</th>
                   <th>PID</th>
                   <th>Status</th>
-                  <th>CPU</th>
                   <th>Mem</th>
                   <th>Gen tok/s</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="lifecycle-list-body">
-                <tr><td colspan="8" class="loading-state">Loading profiles…</td></tr>
+                <tr><td colspan="7" class="loading-state">Loading profiles…</td></tr>
               </tbody>
             </table>
           </div>
@@ -632,23 +642,8 @@
               <span class="tel-val" id="srv-uptime-val">—</span>
             </div>
             <div class="telemetry-item">
-              <span class="tel-label">CPU</span>
-              <span class="tel-val" id="realtime-cpu">—</span>
-            </div>
-            <div class="telemetry-item">
               <span class="tel-label">RSS Mem</span>
               <span class="tel-val" id="realtime-mem">—</span>
-            </div>
-          </div>
-
-          <!-- Sparkline -->
-          <div class="glass-card" style="padding:12px 16px; margin-bottom:16px; border:1px solid var(--border-soft); background:rgba(0,0,0,0.12);" id="sec-sparkline-card">
-            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.76rem; color:var(--text-dim); margin-bottom:8px; font-weight:500; text-transform:uppercase; letter-spacing:0.5px;">
-              <span>CPU / Memory Sparkline</span>
-              <span id="sparkline-stats-label" style="font-weight:600; color:var(--text-main);">—</span>
-            </div>
-            <div style="height:50px; position:relative;">
-              <canvas id="chart-canvas" style="width:100%; height:50px; display:block;"></canvas>
             </div>
           </div>
 
@@ -683,11 +678,20 @@
           <!-- Log + Quick Test in a two-column grid -->
           <div class="lifecycle-layout-grid">
             <div class="lifecycle-main">
-              <!-- Terminal -->
-              <div class="glass-card term-card">
-                <div class="card-header">
-                  <h3>Console Output</h3>
-                  <div class="term-actions">
+              <!-- Terminal (collapsed by default) -->
+              <div class="glass-card term-card" id="console-card">
+                <div class="card-header" style="cursor:pointer;" id="console-toggle-bar">
+                  <h3 style="display:flex;align-items:center;gap:8px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                    Console Output
+                  </h3>
+                  <div class="term-actions" id="console-closed-actions">
+                    <button class="btn btn-sm btn-secondary" id="btn-view-console">
+                      <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                      View
+                    </button>
+                  </div>
+                  <div class="term-actions" id="console-open-actions" style="display:none;">
                     <button class="btn btn-sm btn-secondary" id="btn-download-logs">
                       <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
                       Download
@@ -696,10 +700,14 @@
                       <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                       Clear
                     </button>
+                    <button class="btn btn-sm btn-secondary" id="btn-close-console">
+                      <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                      Close
+                    </button>
                   </div>
                 </div>
-                <div class="terminal-body" id="server-log-console">
-                  <div class="terminal-line system-line">[System] Select a profile to view logs.</div>
+                <div class="terminal-body" id="server-log-console" style="display:none;">
+                  <div class="terminal-line system-line">[System] Click View to open the log tail.</div>
                 </div>
               </div>
 

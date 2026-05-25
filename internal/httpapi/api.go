@@ -676,7 +676,13 @@ func (s *Server) handleTestServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &http.Client{Timeout: 120 * time.Second}
-	completionURL := fmt.Sprintf("http://%s:%d/completion", srv.Host, srv.Port)
+	// If the child server binds to 0.0.0.0 or ::, connect via loopback — the process
+	// runs on the same host as the studio server so 127.0.0.1 is always reachable.
+	proxyHost := srv.Host
+	if proxyHost == "0.0.0.0" || proxyHost == "::" || proxyHost == "" {
+		proxyHost = "127.0.0.1"
+	}
+	completionURL := fmt.Sprintf("http://%s:%d/completion", proxyHost, srv.Port)
 
 	// Hit llama-server directly
 	body, _ := json.Marshal(map[string]interface{}{

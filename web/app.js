@@ -34,7 +34,8 @@ document.addEventListener("DOMContentLoaded", () => {
     statsPollInterval: null,
     listPollInterval: null,
     lastLogCount: 0,
-    telemetryHistory: { cpu: [], mem: [] },
+    consoleOpen: false,
+    telemetryHistory: { mem: [] },
   };
 
   // Auth Queue for requests waiting for token entry
@@ -605,6 +606,7 @@ document.addEventListener("DOMContentLoaded", () => {
       initProfileEditor();
       document.getElementById("profile-model").value = modelID;
       updateCLIPreview();
+      updateVRAMEstimate();
     }, 100);
   };
 
@@ -625,6 +627,69 @@ document.addEventListener("DOMContentLoaded", () => {
   const profileForm = document.getElementById("profile-form");
   const simplePortPolicy = document.getElementById("simple-port-policy");
   const groupFixedPort = document.getElementById("group-fixed-port");
+
+  // ── VRAM Estimator ──────────────────────────────────────────────────────────
+  // Bytes-per-weight for common GGUF quantisation formats.
+  const QUANT_BPW = {
+    "F32": 4.0, "FP32": 4.0,
+    "F16": 2.0, "FP16": 2.0, "BF16": 2.0,
+    "Q8_0": 1.0,
+    "Q6_K": 0.78,
+    "Q5_K_M": 0.68, "Q5_K_S": 0.65, "Q5_K": 0.67, "Q5_0": 0.625, "Q5_1": 0.6875,
+    "Q4_K_M": 0.57, "Q4_K_S": 0.54, "Q4_K": 0.55, "Q4_0": 0.5, "Q4_1": 0.5625,
+    "Q3_K_L": 0.46, "Q3_K_M": 0.44, "Q3_K_S": 0.41, "Q3_K": 0.44,
+    "Q2_K": 0.34, "Q2_K_S": 0.31,
+    "IQ4_NL": 0.55, "IQ4_XS": 0.52,
+    "IQ3_XXS": 0.39, "IQ3_S": 0.42,
+    "IQ2_XXS": 0.29, "IQ2_XS": 0.31, "IQ2_S": 0.34, "IQ2_M": 0.36,
+    "IQ1_S": 0.22, "IQ1_M": 0.24,
+  };
+
+  function updateVRAMEstimate() {
+    const card    = document.getElementById("vram-estimate-card");
+    const modelId = document.getElementById("profile-model").value;
+    const ctxSel  = document.getElementById("simple-ctx").value;
+
+    const model = state.models.find(m => m.id === modelId);
+    if (!model || !card) {
+      if (card) card.style.display = "none";
+      return;
+    }
+
+    const bpw       = QUANT_BPW[model.quantization] || 0.57;
+    const paramsB   = model.size_bytes / (bpw * 1e9);               // estimated params in billions
+    const ctxSize   = parseInt(ctxSel) || model.context_length || 4096;
+
+    // Fixed cost: weights + CUDA overhead + scratchpad
+    const weightsGb  = paramsB * bpw;
+    const overheadGb = 0.55 + 0.08 * paramsB;
+    const baseGb     = weightsGb + overheadGb;
+
+    // KV cache: formula from localllm.in/blog/interactive-vram-calculator
+    //   KV = B × N × 2 × L × (d / g) × b_kv / 1e9
+    //   B=1 (single slot), b_kv=2 (FP16 default), g=4 (GQA typical)
+    const L    = model.block_count      || Math.round(paramsB * 4.5); // fallback: ~4.5 layers/B
+    const d    = model.embedding_length || Math.round(paramsB * 512); // fallback: ~512 per B
+    const g    = 4;  // GQA grouping factor (most modern models)
+    const kvGb = (1 * ctxSize * 2 * L * (d / g) * 2) / 1e9;
+
+    const totalGb = baseGb + kvGb;
+
+    card.style.display = "";
+    const fmt = v => v.toFixed(2);
+    document.getElementById("vram-total").textContent = `~${fmt(totalGb)} GB`;
+    document.getElementById("vram-breakdown").textContent =
+      `${fmt(weightsGb)} weights + ${fmt(overheadGb)} overhead + ${fmt(kvGb)} KV·${ctxSize.toLocaleString()}ctx · ~${Math.round(paramsB)}B params`;
+    const qbadge = document.getElementById("vram-quant-badge");
+    if (qbadge) {
+      qbadge.textContent = model.quantization || "Unknown";
+      qbadge.style.display = model.quantization ? "" : "none";
+    }
+  }
+
+  // Hook live updates
+  document.getElementById("profile-model").addEventListener("change", updateVRAMEstimate);
+  document.getElementById("simple-ctx").addEventListener("change", updateVRAMEstimate);
 
   // Presets Click Binding
   document.querySelectorAll(".preset-btn").forEach(btn => {
@@ -834,6 +899,7 @@ document.addEventListener("DOMContentLoaded", () => {
     deleteProfileBtn.style.display = "none";
     groupFixedPort.style.display = "none";
     updateCLIPreview();
+    updateVRAMEstimate();
   }
 
   window.selectProfile = function(profileID) {
@@ -982,6 +1048,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     deleteProfileBtn.style.display = "inline-flex";
     updateCLIPreview();
+    updateVRAMEstimate();
   };
 
   // Live CLI Preview Generator
@@ -1353,6 +1420,38 @@ document.addEventListener("DOMContentLoaded", () => {
     if (state.logPollInterval)   { clearInterval(state.logPollInterval);   state.logPollInterval   = null; }
     if (state.statsPollInterval) { clearInterval(state.statsPollInterval); state.statsPollInterval = null; }
   }
+
+  function openConsole(serverID) {
+    state.consoleOpen = true;
+    const body    = document.getElementById("server-log-console");
+    const closed  = document.getElementById("console-closed-actions");
+    const opened  = document.getElementById("console-open-actions");
+    if (body)   body.style.display   = "";
+    if (closed) closed.style.display = "none";
+    if (opened) opened.style.display = "";
+
+    // Reset and start tailing if a server is running
+    if (serverID) {
+      state.lastLogCount = 0;
+      if (body) body.replaceChildren(h("div", {class: "terminal-line system-line"}, "[System] Connecting to log stream…"));
+      pollServerLogs(serverID);
+      if (!state.logPollInterval) {
+        state.logPollInterval = setInterval(() => pollServerLogs(serverID), 1000);
+      }
+    }
+  }
+
+  function closeConsole() {
+    state.consoleOpen = false;
+    const body    = document.getElementById("server-log-console");
+    const closed  = document.getElementById("console-closed-actions");
+    const opened  = document.getElementById("console-open-actions");
+    if (body)   body.style.display   = "none";
+    if (closed) closed.style.display = "";
+    if (opened) opened.style.display = "none";
+    // Stop log polling — stats continue
+    if (state.logPollInterval) { clearInterval(state.logPollInterval); state.logPollInterval = null; }
+  }
   function clearListInterval() {
     if (state.listPollInterval)  { clearInterval(state.listPollInterval);  state.listPollInterval  = null; }
   }
@@ -1384,7 +1483,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const hasMetrics = Array.isArray(srv.profile_snapshot?.args) &&
                                srv.profile_snapshot.args.includes("--metrics");
             statsCache[srv.profile_id] = {
-              cpu:    parseFloat(last.cpu_percent || 0).toFixed(1) + "%",
               mem:    (last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2) + " GB",
               genTps: hasMetrics ? (last.generation_tokens_per_second || 0).toFixed(1) + " t/s" : "—",
             };
@@ -1476,6 +1574,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function showListView() {
     clearDetailIntervals();
+    state.consoleOpen = false;
     lcListView.style.display   = "";
     lcDetailView.style.display = "none";
     state.activeProfileIdInLifecycle = null;
@@ -1529,13 +1628,11 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("srv-pid-val").textContent      = "—";
       document.getElementById("srv-port-val").textContent     = p?.port || "—";
       document.getElementById("srv-uptime-val").textContent   = "—";
-      document.getElementById("realtime-cpu").textContent     = "—";
       document.getElementById("realtime-mem").textContent     = "—";
       BLANK_METRICS.forEach(id => { document.getElementById(id).textContent = "—"; });
 
-      document.getElementById("server-log-console").replaceChildren(
-        h("div", {class: "terminal-line system-line"}, `[System] "${p?.name}" is offline. Click Start to launch it.`)
-      );
+      // Console is collapsed when server is stopped
+      if (state.consoleOpen) closeConsole();
     } else {
       // ── Running / starting state ────────────────────────────────
       state.activeServerId = srv.id;
@@ -1549,15 +1646,15 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("srv-status-badge").textContent = srv.status;
       document.getElementById("srv-pid-val").textContent      = srv.pid || "—";
       document.getElementById("srv-port-val").textContent     = srv.port || "—";
-      document.getElementById("server-log-console").replaceChildren(
-        h("div", {class: "terminal-line system-line"}, "[System] Connecting to log stream…")
-      );
 
-      // Kick off real-time polling
-      pollServerLogs(srv.id);
+      // Stats polling always runs; log polling only when console is open
       pollServerTelemetry(srv.id);
-      state.logPollInterval   = setInterval(() => pollServerLogs(srv.id),   1000);
       state.statsPollInterval = setInterval(() => pollServerTelemetry(srv.id), 1500);
+
+      // If console was already open (e.g. after restart), resume log tail
+      if (state.consoleOpen) {
+        openConsole(srv.id);
+      }
     }
   }
 
@@ -1639,11 +1736,28 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  document.getElementById("btn-download-logs").addEventListener("click", () => {
+  document.getElementById("btn-view-console").addEventListener("click", (e) => {
+    e.stopPropagation();
+    openConsole(state.activeServerId);
+  });
+
+  document.getElementById("console-toggle-bar").addEventListener("click", () => {
+    // Clicking the header bar also toggles when collapsed
+    if (!state.consoleOpen) openConsole(state.activeServerId);
+  });
+
+  document.getElementById("btn-close-console").addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeConsole();
+  });
+
+  document.getElementById("btn-download-logs").addEventListener("click", (e) => {
+    e.stopPropagation();
     if (state.activeServerId) window.open(`/api/servers/${state.activeServerId}/logs/download`);
   });
 
-  document.getElementById("btn-clear-terminal").addEventListener("click", () => {
+  document.getElementById("btn-clear-terminal").addEventListener("click", (e) => {
+    e.stopPropagation();
     const box = document.getElementById("server-log-console");
     box.replaceChildren(h("div", {class: "terminal-line system-line"}, "[System] Console cleared."));
     state.lastLogCount = 0;
@@ -1709,7 +1823,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const samples = await apiCall(`/api/servers/${serverID}/stats`);
       if (samples.length > 0) {
         const last = samples[samples.length - 1];
-        document.getElementById("realtime-cpu").textContent = `${parseFloat(last.cpu_percent).toFixed(1)}%`;
         document.getElementById("realtime-mem").textContent = `${(last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 
         const srvRec   = state.servers.find(s => s.id === serverID);
@@ -1730,93 +1843,18 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         }
 
-        state.telemetryHistory.cpu = samples.map(sa => sa.cpu_percent);
-        state.telemetryHistory.mem = samples.map(sa => sa.memory_rss_bytes / 1024 / 1024 / 1024);
-        drawTelemetryCanvas();
-
-        // Also update the list stats cache so the list stays fresh when we go back
+        // Update list stats cache so the list stays fresh when navigating back
         if (srvRec) {
           const hasM = Array.isArray(srvRec?.profile_snapshot?.args) &&
                        srvRec.profile_snapshot.args.includes("--metrics");
           statsCache[srvRec.profile_id] = {
-            cpu:    `${parseFloat(last.cpu_percent).toFixed(1)}%`,
+            cpu:    "—",
             mem:    `${(last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2)} GB`,
             genTps: hasM ? `${(last.generation_tokens_per_second || 0).toFixed(1)} t/s` : "—",
           };
         }
       }
     } catch { /* keep existing values on transient error */ }
-  }
-
-  // Canvas Sparks Graph drawing
-  function drawTelemetryCanvas() {
-    const canvas = document.getElementById("chart-canvas");
-    if (!canvas) return;
-
-    // Fluidly scale the internal canvas coordinates to match CSS layout bounds crisply
-    const rect = canvas.getBoundingClientRect();
-    if (canvas.width !== rect.width || canvas.height !== rect.height) {
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-    }
-
-    const ctx = canvas.getContext("2d");
-    const width = canvas.width;
-    const height = canvas.height;
-
-    ctx.clearRect(0, 0, width, height);
-
-    const cpuData = state.telemetryHistory.cpu;
-    const memData = state.telemetryHistory.mem;
-    if (cpuData.length < 2) return;
-
-    // Update stats text label
-    const latestCpu = cpuData[cpuData.length - 1] || 0.0;
-    const latestMem = memData[memData.length - 1] || 0.00;
-    const labelEl = document.getElementById("sparkline-stats-label");
-    if (labelEl) {
-      labelEl.textContent = `${latestCpu.toFixed(1)}% CPU | ${latestMem.toFixed(2)} GB RAM`;
-    }
-
-    // Dynamically retrieve active CSS custom properties for proper theme coordination
-    const computedStyle = getComputedStyle(document.documentElement);
-    const borderSoft = computedStyle.getPropertyValue("--border-soft").trim() || "#eee6d9";
-    const accentPink = computedStyle.getPropertyValue("--accent-pink").trim() || "#8b5e34";
-
-    // Draw grid lines
-    ctx.strokeStyle = borderSoft;
-    ctx.lineWidth = 1;
-    for (let i = 20; i < width; i += 20) {
-      ctx.beginPath();
-      ctx.moveTo(i, 0);
-      ctx.lineTo(i, height);
-      ctx.stroke();
-    }
-    for (let i = 10; i < height; i += 10) {
-      ctx.beginPath();
-      ctx.moveTo(0, i);
-      ctx.lineTo(width, i);
-      ctx.stroke();
-    }
-
-    // Plot CPU sparkline
-    ctx.beginPath();
-    ctx.strokeStyle = accentPink;
-    ctx.lineWidth = 2;
-    
-    const step = width / (cpuData.length - 1);
-    for (let idx = 0; idx < cpuData.length; idx++) {
-      const val = cpuData[idx]; // 0 - 100%
-      const x = idx * step;
-      const y = height - ((val / 100) * (height - 6)) - 3;
-      
-      if (idx === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    }
-    ctx.stroke();
   }
 
   // --- 7. QUICK PROMPT TEST PLAYGROUND ---
@@ -1848,19 +1886,18 @@ document.addEventListener("DOMContentLoaded", () => {
     testBtn.disabled = true;
     testOutputBox.innerHTML = `<span class="placeholder-text">Executing request...</span>`;
 
-    const host = s.host === "0.0.0.0" || s.host === "::" ? window.location.hostname : s.host;
-    const url = `http://${host}:${s.port}/completion`;
-    const payload = {
-      prompt,
-      temperature: temp,
-      n_predict: tokens,
-      stream
-    };
+    // Route through the main server proxy — never call the child llama-server directly
+    // (it binds to 127.0.0.1 and is not reachable from the browser)
+    const url = `/api/servers/${s.id}/test`;
+    const payload = { prompt, temp, max_tokens: tokens, stream };
+    const headers = { "Content-Type": "application/json" };
+    const savedToken = localStorage.getItem("admin_token");
+    if (savedToken) headers["Authorization"] = `Bearer ${savedToken}`;
 
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload)
       });
 
