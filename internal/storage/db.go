@@ -34,54 +34,88 @@ type Model struct {
 	ScannedAt       string                 `json:"scanned_at"`
 }
 
+// ProfileRouting holds proxy configurations for profile-specific routing gateways.
+type ProfileRouting struct {
+	Enabled               bool   `json:"enabled"`
+	AutoStart             bool   `json:"autoStart"`
+	PrimaryInstancePolicy string `json:"primaryInstancePolicy"`
+	PublicPath            string `json:"publicPath"`
+}
+
 // Profile represents saved llama-server configuration.
 type Profile struct {
-	ID                 string            `json:"id"`
-	Name               string            `json:"name"`
-	Description        string            `json:"description,omitempty"`
-	ModelID            string            `json:"model_id"`
-	Args               []string          `json:"args"`
+	ID                 string          `json:"id"`
+	Name               string          `json:"name"`
+	Description        string          `json:"description,omitempty"`
+	ModelID            string          `json:"model_id"`
+	Args               []string        `json:"args"`
 	Env                map[string]string `json:"env,omitempty"`
-	WorkingDir         string            `json:"working_dir,omitempty"`
-	DefaultHost        string            `json:"default_host"`
-	DefaultPortPolicy  string            `json:"default_port_policy"` // auto, fixed
-	FixedPort          int               `json:"fixed_port,omitempty"`
-	Tags               []string          `json:"tags,omitempty"`
-	CreatedAt          string            `json:"created_at"`
-	UpdatedAt          string            `json:"updated_at"`
+	WorkingDir         string          `json:"working_dir,omitempty"`
+	DefaultHost        string          `json:"default_host"`
+	DefaultPortPolicy  string          `json:"default_port_policy"` // auto, fixed
+	FixedPort          int             `json:"fixed_port,omitempty"`
+	Routing            *ProfileRouting `json:"routing,omitempty"`
+	Tags               []string        `json:"tags,omitempty"`
+	CreatedAt          string          `json:"created_at"`
+	UpdatedAt          string          `json:"updated_at"`
+}
+
+// ServerHealth holds the last check timestamp and state.
+type ServerHealth struct {
+	LastCheckAt string `json:"lastCheckAt"`
+	State       string `json:"state"`
 }
 
 // Server represents a managed llama-server child process.
 type Server struct {
-	ID              string   `json:"id"`
-	ProfileID       string   `json:"profile_id"`
-	ModelID         string   `json:"model_id"`
-	PID             int      `json:"pid"`
-	Host            string   `json:"host"`
-	Port            int      `json:"port"`
-	Status          string   `json:"status"` // stopped, starting, healthy, unhealthy, stopping, crashed, unknown
-	StartedAt       string   `json:"started_at,omitempty"`
-	StoppedAt       string   `json:"stopped_at,omitempty"`
-	ExitCode        int      `json:"exit_code"`
-	LastError       string   `json:"last_error,omitempty"`
-	ProfileSnapshot Profile  `json:"profile_snapshot"`
-	CreatedAt       string   `json:"created_at"`
-	UpdatedAt       string   `json:"updated_at"`
+	ID              string       `json:"id"`
+	InstanceID      string       `json:"instanceId"` // Alias for spec compatibility
+	ProfileID       string       `json:"profile_id"`
+	ProfileIDSpec   string       `json:"profileId"`  // Alias for spec compatibility
+	ModelID         string       `json:"model_id"`
+	PID             int          `json:"pid"`
+	Host            string       `json:"host"`
+	Port            int          `json:"port"`
+	BaseURL         string       `json:"baseUrl"` // Alias for spec compatibility
+	Status          string       `json:"status"` // stopped, starting, healthy, unhealthy, stopping, crashed, unknown
+	StartedAt       string       `json:"started_at,omitempty"`
+	StartedAtSpec   string       `json:"startedAt,omitempty"` // Alias for spec compatibility
+	StoppedAt       string       `json:"stopped_at,omitempty"`
+	ExitCode        int          `json:"exit_code"`
+	LastError       string       `json:"last_error,omitempty"`
+	ProfileSnapshot Profile      `json:"profile_snapshot"`
+	Argv            []string     `json:"argv"`
+	LogPath         string       `json:"logPath"`
+	Health          ServerHealth `json:"health"`
+	CreatedAt       string       `json:"created_at"`
+	UpdatedAt       string       `json:"updated_at"`
 }
 
 // StatsSample holds process and proxy metrics.
 type StatsSample struct {
-	ID              int       `json:"id"`
-	ServerID        string    `json:"server_id"`
-	SampledAt       string    `json:"sampled_at"`
-	CPUPercent      float64   `json:"cpu_percent"`
-	MemoryRSSBytes  int64     `json:"memory_rss_bytes"`
-	RequestCount    int       `json:"request_count"`
-	ErrorCount      int       `json:"error_count"`
-	AvgLatencyMS    float64   `json:"avg_latency_ms"`
-	P50LatencyMS    float64   `json:"p50_latency_ms"`
-	P95LatencyMS    float64   `json:"p95_latency_ms"`
-	TokensPerSecond float64   `json:"tokens_per_second"`
+	ID                        int       `json:"id"`
+	ServerID                  string    `json:"server_id"`
+	SampledAt                 string    `json:"sampled_at"`
+	CPUPercent                float64   `json:"cpu_percent"`
+	MemoryRSSBytes            int64     `json:"memory_rss_bytes"`
+	RequestCount              int       `json:"request_count"`
+	ErrorCount                int       `json:"error_count"`
+	AvgLatencyMS              float64   `json:"avg_latency_ms"`
+	P50LatencyMS              float64   `json:"p50_latency_ms"`
+	P95LatencyMS              float64   `json:"p95_latency_ms"`
+	TokensPerSecond           float64   `json:"tokens_per_second"`
+	PromptTokensTotal         int64     `json:"prompt_tokens_total,omitempty"`
+	PromptSecondsTotal        float64   `json:"prompt_seconds_total,omitempty"`
+	PromptTokensPerSecond     float64   `json:"prompt_tokens_per_second,omitempty"`
+	GenerationTokensTotal     int64     `json:"generation_tokens_total,omitempty"`
+	GenerationSecondsTotal    float64   `json:"generation_seconds_total,omitempty"`
+	GenerationTokensPerSecond float64   `json:"generation_tokens_per_second,omitempty"`
+	RequestsProcessing        int       `json:"requests_processing,omitempty"`
+	RequestsDeferred          int       `json:"requests_deferred,omitempty"`
+	SlotCount                 int       `json:"slot_count,omitempty"`
+	BusySlots                 int       `json:"busy_slots,omitempty"`
+	CtxSizeObserved           int       `json:"ctx_size_observed,omitempty"`
+	GPUMemoryUsed             int64     `json:"gpu_memory_used,omitempty"`
 }
 
 // BenchmarkRun holds prompt completion and throughput results.

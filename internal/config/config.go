@@ -19,6 +19,7 @@ type Config struct {
 	AdminToken       string   `json:"admin_token"`
 	AllowInsecureLAN bool     `json:"allow_insecure_lan"`
 	DataDir          string   `json:"data_dir"`
+	GatewayToken     string   `json:"gateway_token"`
 }
 
 // DefaultConfig returns the default configuration.

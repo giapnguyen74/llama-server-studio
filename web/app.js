@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (target === "profiles") loadProfilesList();
         if (target === "servers") loadServerLifecycleView();
         if (target === "benchmarks") loadBenchmarksHistory();
+        if (target === "security") loadSecurityView();
       });
     });
 
@@ -383,6 +384,74 @@ document.addEventListener("DOMContentLoaded", () => {
   const simplePortPolicy = document.getElementById("simple-port-policy");
   const groupFixedPort = document.getElementById("group-fixed-port");
 
+  // Presets Click Binding
+  document.querySelectorAll(".preset-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const preset = btn.dataset.preset;
+      applyPreset(preset);
+    });
+  });
+
+  function applyPreset(name) {
+    const activeModelId = document.getElementById("profile-model").value;
+    
+    // Clean all inputs first
+    document.getElementById("simple-ctx").value = "";
+    document.getElementById("simple-ngl").value = "";
+    document.getElementById("simple-threads").value = "";
+    document.getElementById("simple-batch").value = "";
+    document.getElementById("simple-parallel").value = "";
+    document.getElementById("simple-routing-enabled").checked = true;
+    document.getElementById("simple-routing-autostart").checked = false;
+    document.getElementById("simple-routing-policy").value = "latest-ready";
+    document.getElementById("simple-ngl").value = "";
+    document.getElementById("simple-threads").value = "";
+    document.getElementById("simple-batch").value = "";
+    document.getElementById("simple-parallel").value = "";
+    document.getElementById("adv-gpu-device").value = "";
+    document.getElementById("adv-gpu-split").value = "";
+    document.getElementById("adv-gpu-tensor").value = "";
+    document.getElementById("adv-gpu-main").value = "";
+    document.getElementById("adv-mem-flash").value = "auto";
+    document.getElementById("adv-mem-mmap").value = "auto";
+    document.getElementById("adv-mem-mlock").checked = false;
+    document.getElementById("adv-mem-cacheprompt").checked = true;
+    document.getElementById("adv-cpu-numa").value = "";
+    document.getElementById("adv-lora").value = "";
+    document.getElementById("adv-spec-draft").value = "";
+    document.getElementById("adv-log-file").value = "";
+    document.getElementById("adv-log-verbose").checked = false;
+    document.getElementById("adv-diag-perf").checked = true;
+    document.getElementById("adv-workdir").value = "";
+    document.getElementById("adv-host").value = "";
+    document.getElementById("adv-args").value = "";
+
+    if (name === "balanced") {
+      document.getElementById("simple-ctx").value = "8192";
+      document.getElementById("simple-ngl").value = "auto";
+      document.getElementById("adv-mem-flash").value = "auto";
+    } else if (name === "cpu") {
+      document.getElementById("simple-ngl").value = "0";
+      document.getElementById("adv-gpu-device").value = "none";
+      document.getElementById("adv-mem-flash").value = "off";
+    } else if (name === "gpu-offload") {
+      document.getElementById("simple-ngl").value = "all";
+      document.getElementById("adv-mem-flash").value = "auto";
+    } else if (name === "long-context") {
+      document.getElementById("simple-ctx").value = "32768";
+      document.getElementById("simple-parallel").value = "1";
+    } else if (name === "embedding") {
+      document.getElementById("adv-args").value = '["--embedding"]';
+    } else if (name === "rerank") {
+      document.getElementById("adv-args").value = '["--rerank"]';
+    } else if (name === "benchmark") {
+      document.getElementById("simple-parallel").value = "1";
+      document.getElementById("adv-args").value = '["--temp", "0.0", "--seed", "42"]';
+    }
+
+    updateCLIPreview();
+  }
+
   // Tabs
   const profileTabButtons = document.querySelectorAll(".profile-editor .tab-btn");
   const profileTabContents = document.querySelectorAll(".profile-editor .tab-content");
@@ -409,7 +478,8 @@ document.addEventListener("DOMContentLoaded", () => {
     "adv-gpu-device", "adv-gpu-split", "adv-gpu-tensor", "adv-gpu-main",
     "adv-mem-flash", "adv-mem-mmap", "adv-mem-mlock", "adv-mem-cacheprompt",
     "adv-cpu-numa", "adv-lora", "adv-spec-draft", "adv-log-file",
-    "adv-log-verbose", "adv-diag-perf"
+    "adv-log-verbose", "adv-diag-perf",
+    "simple-routing-enabled", "simple-routing-autostart", "simple-routing-policy"
   ];
   formInputs.forEach(id => {
     const el = document.getElementById(id);
@@ -481,6 +551,12 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("edit-profile-id").value = "";
     profileForm.reset();
     
+    // Pre-populate safest and most performant recommended defaults
+    document.getElementById("simple-ctx").value = "8192";
+    document.getElementById("simple-ngl").value = "auto";
+    document.getElementById("simple-threads").value = "-1";
+    document.getElementById("simple-parallel").value = "-1";
+    
     // Explicitly reset all advanced fields to prevent leaking states
     document.getElementById("adv-gpu-device").value = "";
     document.getElementById("adv-gpu-split").value = "";
@@ -498,7 +574,10 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("adv-diag-perf").checked = true;
     document.getElementById("adv-workdir").value = "";
     document.getElementById("adv-host").value = "127.0.0.1";
-    document.getElementById("adv-args").value = "";
+    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots"]';
+    document.getElementById("simple-routing-enabled").checked = true;
+    document.getElementById("simple-routing-autostart").checked = false;
+    document.getElementById("simple-routing-policy").value = "latest-ready";
     
     // Populate model options
     const modelSelect = document.getElementById("profile-model");
@@ -531,7 +610,7 @@ document.addEventListener("DOMContentLoaded", () => {
     modelSelect.value = p.model_id;
 
     // Parse simple settings from args
-    let ctx = 2048, ngl = 0, threads = 4, batch = 512, parallel = 1;
+    let ctx = "", ngl = "", threads = "", batch = "", parallel = "";
     
     const args = p.args;
     for (let i = 0; i < args.length; i++) {
@@ -543,18 +622,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const ctxSelect = document.getElementById("simple-ctx");
-    let exists = false;
-    for (let i = 0; i < ctxSelect.options.length; i++) {
-      if (parseInt(ctxSelect.options[i].value) === ctx) {
-        exists = true;
-        break;
+    if (ctx !== "") {
+      let exists = false;
+      for (let i = 0; i < ctxSelect.options.length; i++) {
+        if (parseInt(ctxSelect.options[i].value) === ctx) {
+          exists = true;
+          break;
+        }
       }
-    }
-    if (!exists) {
-      const opt = document.createElement("option");
-      opt.value = ctx;
-      opt.textContent = `${ctx} (Saved)`;
-      ctxSelect.appendChild(opt);
+      if (!exists) {
+        const opt = document.createElement("option");
+        opt.value = ctx;
+        opt.textContent = `${ctx} (Saved)`;
+        ctxSelect.appendChild(opt);
+      }
     }
     ctxSelect.value = ctx;
     document.getElementById("simple-ngl").value = ngl;
@@ -642,6 +723,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("adv-workdir").value = p.working_dir || "";
     document.getElementById("adv-host").value = p.default_host || "127.0.0.1";
 
+    const routing = p.routing || { enabled: true, autoStart: false, primaryInstancePolicy: "latest-ready" };
+    document.getElementById("simple-routing-enabled").checked = routing.enabled !== false;
+    document.getElementById("simple-routing-autostart").checked = routing.autoStart === true;
+    document.getElementById("simple-routing-policy").value = routing.primaryInstancePolicy || "latest-ready";
+
     deleteProfileBtn.style.display = "inline-flex";
     updateCLIPreview();
   };
@@ -653,23 +739,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const modelPath = m ? m.resolved_path : "[model-file-path]";
 
     const ctx = document.getElementById("simple-ctx").value;
-    const ngl = document.getElementById("simple-ngl").value;
-    const threads = document.getElementById("simple-threads").value;
-    const batch = document.getElementById("simple-batch").value;
-    const parallel = document.getElementById("simple-parallel").value;
+    const ngl = document.getElementById("simple-ngl").value.trim();
+    const threads = document.getElementById("simple-threads").value.trim();
+    const batch = document.getElementById("simple-batch").value.trim();
+    const parallel = document.getElementById("simple-parallel").value.trim();
     const portPolicy = simplePortPolicy.value;
     const fixedPort = document.getElementById("simple-fixed-port").value;
-    const host = document.getElementById("adv-host").value || "127.0.0.1";
+    const host = document.getElementById("adv-host").value.trim();
 
     const builtArgs = [
-      "-m", modelPath,
-      "-c", ctx,
-      "-ngl", ngl,
-      "-t", threads,
-      "-b", batch,
-      "-np", parallel,
-      "--host", host
+      "-m", modelPath
     ];
+
+    if (ctx) builtArgs.push("-c", ctx);
+    if (ngl !== "") builtArgs.push("-ngl", ngl);
+    if (threads !== "") builtArgs.push("-t", threads);
+    if (batch !== "") builtArgs.push("-b", batch);
+    if (parallel !== "") builtArgs.push("-np", parallel);
+    if (host) builtArgs.push("--host", host);
 
     if (portPolicy === "fixed") {
       builtArgs.push("--port", fixedPort);
@@ -754,6 +841,138 @@ document.addEventListener("DOMContentLoaded", () => {
     }).join("\n");
 
     document.getElementById("cli-command-text").textContent = render;
+    
+    // Perform dynamic validation checks
+    validateActiveProfile();
+  }
+
+  function validateActiveProfile() {
+    const name = document.getElementById("profile-name").value.trim();
+    const modelID = document.getElementById("profile-model").value;
+    const ngl = document.getElementById("simple-ngl").value.trim();
+    const threads = document.getElementById("simple-threads").value.trim();
+    const ctx = document.getElementById("simple-ctx").value;
+    const portPolicy = simplePortPolicy.value;
+    const fixedPort = document.getElementById("simple-fixed-port").value.trim();
+    const parallel = document.getElementById("simple-parallel").value.trim();
+    const host = document.getElementById("adv-host").value.trim();
+    const advStr = document.getElementById("adv-args").value.trim();
+
+    const diagnostics = [];
+
+    // 1. Errors
+    if (!name) {
+      diagnostics.push({ severity: "error", message: "Profile name is required." });
+    }
+    if (!modelID) {
+      diagnostics.push({ severity: "error", message: "Model selection is required. Please select a local GGUF model." });
+    }
+    if (portPolicy === "fixed") {
+      const portNum = parseInt(fixedPort);
+      if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        diagnostics.push({ severity: "error", message: "Fixed port number must be a valid port between 1 and 65535." });
+      }
+    }
+    if (threads !== "") {
+      const threadsNum = parseInt(threads);
+      if (isNaN(threadsNum) || (threadsNum <= 0 && threadsNum !== -1)) {
+        diagnostics.push({ severity: "error", message: "CPU Threads must be a positive integer or -1 (for auto)." });
+      }
+    }
+    if (advStr) {
+      try {
+        const parsed = JSON.parse(advStr);
+        if (!Array.isArray(parsed)) {
+          diagnostics.push({ severity: "error", message: "Custom CLI flags must be formatted as a valid JSON array of strings." });
+        }
+      } catch {
+        diagnostics.push({ severity: "error", message: "Custom CLI flags textbox contains malformed JSON. Example format: [\"--embedding\", \"-cb\"]" });
+      }
+    }
+
+    // 2. Warnings
+    if (ngl !== "" && ngl !== "auto" && ngl !== "all") {
+      const nglNum = parseInt(ngl);
+      if (!isNaN(nglNum) && nglNum > 120) {
+        diagnostics.push({ severity: "warning", message: "Offloading more than 120 layers may exceed your model size and exhaust VRAM." });
+      }
+    }
+    if (threads !== "") {
+      const threadsNum = parseInt(threads);
+      if (!isNaN(threadsNum) && threadsNum > 16) {
+        diagnostics.push({ severity: "warning", message: "Allocating more than 16 CPU threads might hurt performance due to core contention." });
+      }
+    }
+    if (ctx && parseInt(ctx) > 32768) {
+      diagnostics.push({ severity: "warning", message: "Context sizes above 32k tokens dramatically increase memory footprints." });
+    }
+    if (host === "0.0.0.0") {
+      diagnostics.push({ severity: "warning", message: "Exposing the server on 0.0.0.0 makes it accessible to your entire local network. Ensure firewalls are configured." });
+    }
+
+    // 3. Info
+    if (ngl === "" || ngl === "auto") {
+      diagnostics.push({ severity: "info", message: "GPU Layers set to Auto: llama-server will detect and allocate layers." });
+    }
+    if (!ctx) {
+      diagnostics.push({ severity: "info", message: "Context size set to Default: context window will adapt to GGUF model metadata." });
+    }
+    if (parallel === "" || parallel === "1") {
+      diagnostics.push({ severity: "info", message: "Isolated parallel slots: single session active, minimizing VRAM cache." });
+    }
+
+    // Render Diagnostics Console
+    const consoleBox = document.getElementById("validation-console");
+    const container = document.getElementById("validation-errors");
+    
+    if (diagnostics.length === 0) {
+      consoleBox.style.display = "none";
+      return true; // Validated
+    }
+
+    consoleBox.style.display = "block";
+    container.innerHTML = diagnostics.map(d => {
+      let icon = "";
+      let color = "";
+      if (d.severity === "error") {
+        icon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px; height:12px; margin-right:6px; vertical-align:middle; display:inline-block;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+        color = "color:var(--accent-red); font-weight:600;";
+      } else if (d.severity === "warning") {
+        icon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px; height:12px; margin-right:6px; vertical-align:middle; display:inline-block;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
+        color = "color:var(--accent-yellow);";
+      } else {
+        icon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px; height:12px; margin-right:6px; vertical-align:middle; display:inline-block;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
+        color = "color:var(--text-dim); font-style:italic;";
+      }
+      return `
+        <div style="font-size:0.8rem; display:flex; align-items:flex-start; ${color} line-height:1.4;">
+          <span style="display:inline-flex; align-items:center; padding-top:2px; flex-shrink:0;">${icon}</span>
+          <span>${d.message}</span>
+        </div>
+      `;
+    }).join("");
+
+    const hasErrors = diagnostics.some(d => d.severity === "error");
+    const saveBtn = document.getElementById("btn-save-profile");
+    const runBtn = document.getElementById("btn-save-run-profile");
+    
+    if (hasErrors) {
+      saveBtn.disabled = true;
+      runBtn.disabled = true;
+      saveBtn.style.opacity = "0.5";
+      runBtn.style.opacity = "0.5";
+      saveBtn.style.cursor = "not-allowed";
+      runBtn.style.cursor = "not-allowed";
+      return false; // validation failed
+    } else {
+      saveBtn.disabled = false;
+      runBtn.disabled = false;
+      saveBtn.style.opacity = "1";
+      runBtn.style.opacity = "1";
+      saveBtn.style.cursor = "pointer";
+      runBtn.style.cursor = "pointer";
+      return true; // validation passed (only warnings or info)
+    }
   }
 
   // Copy command button
@@ -778,6 +997,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   async function saveActiveProfile() {
+    // Prevent saves if validation yields errors
+    if (!validateActiveProfile()) {
+      alert("Validation errors detected. Please resolve all red error diagnostics before saving this profile.");
+      return null;
+    }
+
     const profileID = document.getElementById("edit-profile-id").value;
     const name = document.getElementById("profile-name").value;
     const modelID = document.getElementById("profile-model").value;
@@ -803,6 +1028,12 @@ document.addEventListener("DOMContentLoaded", () => {
       default_port_policy: simplePortPolicy.value,
       fixed_port: parseInt(document.getElementById("simple-fixed-port").value) || 8080,
       working_dir: document.getElementById("adv-workdir").value || "",
+      routing: {
+        enabled: document.getElementById("simple-routing-enabled").checked,
+        autoStart: document.getElementById("simple-routing-autostart").checked,
+        primaryInstancePolicy: document.getElementById("simple-routing-policy").value,
+        publicPath: `/profiles/${profileID || 'new'}/v1`
+      }
     };
 
     try {
@@ -1320,5 +1551,79 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       console.error("Failed to load settings configuration", err);
     }
+  }
+
+  // --- 10. SECURITY GATEWAY SETTINGS ---
+
+  async function loadSecurityView() {
+    await loadSettings();
+    const tokenVal = state.settings.gateway_token || "";
+    document.getElementById("sec-gateway-token").value = tokenVal;
+    updateCurlExample(tokenVal);
+  }
+
+  function updateCurlExample(token) {
+    const curlBox = document.getElementById("sec-curl-example");
+    const activeProfileId = state.profiles.length > 0 ? state.profiles[0].id : "{profile_id}";
+    let authHeader = "";
+    if (token) {
+      authHeader = `  -H "Authorization: Bearer ${token}" \\\n`;
+    }
+    curlBox.textContent = `curl -X POST http://127.0.0.1:3100/profiles/${activeProfileId}/v1/chat/completions \\\n` +
+      authHeader +
+      `  -H "Content-Type: application/json" \\\n` +
+      `  -d '{\n` +
+      `    "messages": [{"role": "user", "content": "Hello!"}]\n` +
+      `  }'`;
+  }
+
+  const btnToggleToken = document.getElementById("btn-toggle-sec-token");
+  const tokenInput = document.getElementById("sec-gateway-token");
+  if (btnToggleToken && tokenInput) {
+    btnToggleToken.addEventListener("click", () => {
+      if (tokenInput.type === "password") {
+        tokenInput.type = "text";
+        btnToggleToken.textContent = "Hide";
+      } else {
+        tokenInput.type = "password";
+        btnToggleToken.textContent = "Show";
+      }
+    });
+  }
+
+  const btnGenToken = document.getElementById("btn-gen-sec-token");
+  if (btnGenToken && tokenInput) {
+    btnGenToken.addEventListener("click", () => {
+      const chars = "abcdef0123456789";
+      let suffix = "";
+      for (let i = 0; i < 32; i++) {
+        suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      const freshToken = `sk-${suffix}`;
+      tokenInput.value = freshToken;
+      updateCurlExample(freshToken);
+      tokenInput.type = "text";
+      btnToggleToken.textContent = "Hide";
+    });
+  }
+
+  const btnSaveSecurity = document.getElementById("btn-save-security");
+  if (btnSaveSecurity && tokenInput) {
+    btnSaveSecurity.addEventListener("click", async () => {
+      btnSaveSecurity.disabled = true;
+      const originalText = btnSaveSecurity.textContent;
+      btnSaveSecurity.textContent = " Saving...";
+      const tokenVal = tokenInput.value.trim();
+      try {
+        state.settings = await apiCall("/api/settings/security", "POST", { gateway_token: tokenVal });
+        updateCurlExample(tokenVal);
+        alert("Security settings saved successfully! Gateway Bearer token is active across all profiles.");
+      } catch (err) {
+        alert("Failed to save security settings: " + err.message);
+      } finally {
+        btnSaveSecurity.textContent = originalText;
+        btnSaveSecurity.disabled = false;
+      }
+    });
   }
 });

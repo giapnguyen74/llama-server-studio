@@ -154,7 +154,7 @@ func main() {
 	// 6. Initialize core services
 	supervisor := process.NewSupervisor(db)
 	benchRunner := bench.NewRunner(db, supervisor)
-	proxyRouter := router.NewRouter(db, supervisor)
+	proxyRouter := router.NewRouter(db, supervisor, cfg)
 
 	// 7. Background Context for Workers
 	ctx, cancel := context.WithCancel(context.Background())

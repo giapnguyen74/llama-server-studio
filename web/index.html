@@ -68,6 +68,13 @@
           </svg>
           Benchmarks
         </button>
+        <button class="nav-btn" data-target="security">
+          <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          Security Gateway
+        </button>
       </nav>
       <div class="sidebar-footer">
         <div class="status-indicator-container">
@@ -234,6 +241,19 @@
             </div>
 
             <form id="profile-form">
+              <div class="presets-container glass-card" style="padding:16px; margin-bottom:20px; border-color:var(--border-soft); background:var(--background-muted);">
+                <div style="font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--accent-pink); margin-bottom:10px;">Quick Configuration Presets</div>
+                <div class="presets-row" style="display:flex; flex-wrap:wrap; gap:8px;">
+                  <button type="button" class="btn btn-sm btn-secondary preset-btn" data-preset="balanced">Balanced Chat</button>
+                  <button type="button" class="btn btn-sm btn-secondary preset-btn" data-preset="cpu">CPU Only</button>
+                  <button type="button" class="btn btn-sm btn-secondary preset-btn" data-preset="gpu-offload">GPU Full Offload</button>
+                  <button type="button" class="btn btn-sm btn-secondary preset-btn" data-preset="long-context">Long Context</button>
+                  <button type="button" class="btn btn-sm btn-secondary preset-btn" data-preset="embedding">Embedding Server</button>
+                  <button type="button" class="btn btn-sm btn-secondary preset-btn" data-preset="rerank">Rerank Server</button>
+                  <button type="button" class="btn btn-sm btn-secondary preset-btn" data-preset="benchmark">Benchmark Run</button>
+                </div>
+              </div>
+
               <input type="hidden" id="edit-profile-id">
               <div class="form-row">
                 <div class="form-group col-6">
@@ -264,9 +284,10 @@
                   <div class="form-group">
                     <label for="simple-ctx">Context Length (Tokens)</label>
                     <select id="simple-ctx">
+                      <option value="" selected>System Default (Model Metadata)</option>
                       <option value="512">512</option>
                       <option value="1024">1024</option>
-                      <option value="2048" selected>2048</option>
+                      <option value="2048">2048</option>
                       <option value="4096">4096</option>
                       <option value="8192">8192</option>
                       <option value="16384">16384</option>
@@ -284,7 +305,7 @@
                   </div>
                   <div class="form-group">
                     <label for="simple-ngl">GPU VRAM Layers</label>
-                    <input type="number" id="simple-ngl" value="0">
+                    <input type="text" id="simple-ngl" placeholder="e.g. auto, all, or 32">
                     <span class="field-hint">Outputs: <code>-ngl</code> — Number of layers offloaded to GPU.</span>
                     <details class="arg-details">
                       <summary>Detailed explanation</summary>
@@ -295,7 +316,7 @@
                   </div>
                   <div class="form-group">
                     <label for="simple-threads">CPU Threads</label>
-                    <input type="number" id="simple-threads" value="4">
+                    <input type="number" id="simple-threads" placeholder="Auto / System Default">
                     <span class="field-hint">Outputs: <code>-t</code> — CPU cores used during generation.</span>
                     <details class="arg-details">
                       <summary>Detailed explanation</summary>
@@ -306,7 +327,7 @@
                   </div>
                   <div class="form-group">
                     <label for="simple-batch">Batch Size</label>
-                    <input type="number" id="simple-batch" value="512">
+                    <input type="number" id="simple-batch" placeholder="Auto / System Default">
                     <span class="field-hint">Outputs: <code>-b</code> — Logical maximum prompt batch size.</span>
                     <details class="arg-details">
                       <summary>Detailed explanation</summary>
@@ -317,7 +338,7 @@
                   </div>
                   <div class="form-group">
                     <label for="simple-parallel">Parallel slots</label>
-                    <input type="number" id="simple-parallel" value="1">
+                    <input type="number" id="simple-parallel" placeholder="Auto / System Default">
                     <span class="field-hint">Outputs: <code>-np</code> — Number of concurrent sessions served.</span>
                     <details class="arg-details">
                       <summary>Detailed explanation</summary>
@@ -336,6 +357,25 @@
                   <div class="form-group" id="group-fixed-port" style="display:none;">
                     <label for="simple-fixed-port">Fixed Port Number</label>
                     <input type="number" id="simple-fixed-port" value="8080">
+                  </div>
+
+                  <!-- API Routing & Gateway Section -->
+                  <div class="form-section-title" style="grid-column: 1 / -1; margin-top: 16px;">API Routing & Gateway</div>
+                  <div class="form-group col-6 d-flex-align" style="flex-direction:row; gap:20px; align-items:center; min-height:42px;">
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="simple-routing-enabled" checked>
+                      <span>Enable API Proxying</span>
+                    </label>
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="simple-routing-autostart">
+                      <span>Auto-Start on Request</span>
+                    </label>
+                  </div>
+                  <div class="form-group col-6">
+                    <label for="simple-routing-policy">Primary Instance Policy</label>
+                    <select id="simple-routing-policy">
+                      <option value="latest-ready" selected>Latest Ready Instance</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -432,35 +472,39 @@
                 </div>
 
                 <!-- Group 5: Logging & Performance Diagnostics -->
-                <div class="form-section-title">Logging & Diagnostics</div>
-                <div class="form-grid">
-                  <div class="form-group">
-                    <label for="adv-log-file">Log File Path (<code>--log-file</code>)</label>
-                    <input type="text" id="adv-log-file" placeholder="e.g. /var/log/llama-server.log">
-                    <span class="field-hint">Path to write process logs on the filesystem.</span>
-                  </div>
-                  <div class="form-group d-flex-align" style="flex-direction:row; gap:16px;">
-                    <label class="checkbox-container">
-                      <input type="checkbox" id="adv-log-verbose">
-                      <span>Verbose Logs (<code>--verbose</code>)</span>
-                    </label>
-                    <label class="checkbox-container">
-                      <input type="checkbox" id="adv-diag-perf" checked>
-                      <span>Perf Timings (<code>--perf</code>)</span>
-                    </label>
+                <div style="display: none;">
+                  <div class="form-section-title">Logging & Diagnostics</div>
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label for="adv-log-file">Log File Path (<code>--log-file</code>)</label>
+                      <input type="text" id="adv-log-file" placeholder="e.g. /var/log/llama-server.log">
+                      <span class="field-hint">Path to write process logs on the filesystem.</span>
+                    </div>
+                    <div class="form-group d-flex-align" style="flex-direction:row; gap:16px;">
+                      <label class="checkbox-container">
+                        <input type="checkbox" id="adv-log-verbose">
+                        <span>Verbose Logs (<code>--verbose</code>)</span>
+                      </label>
+                      <label class="checkbox-container">
+                        <input type="checkbox" id="adv-diag-perf" checked>
+                        <span>Perf Timings (<code>--perf</code>)</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
                 <!-- Group 3: Process Configurations & Cwd -->
-                <div class="form-section-title">Process & Host Bindings</div>
-                <div class="form-row">
-                  <div class="form-group col-6">
-                    <label for="adv-workdir">Working Directory</label>
-                    <input type="text" id="adv-workdir" placeholder="e.g. /opt/llama.cpp">
-                  </div>
-                  <div class="form-group col-6">
-                    <label for="adv-host">Default Host Binding</label>
-                    <input type="text" id="adv-host" value="127.0.0.1">
+                <div style="display: none;">
+                  <div class="form-section-title">Process & Host Bindings</div>
+                  <div class="form-row">
+                    <div class="form-group col-6">
+                      <label for="adv-workdir">Working Directory</label>
+                      <input type="text" id="adv-workdir" placeholder="e.g. /opt/llama.cpp">
+                    </div>
+                    <div class="form-group col-6">
+                      <label for="adv-host">Default Host Binding</label>
+                      <input type="text" id="adv-host" placeholder="127.0.0.1 (Default)">
+                    </div>
                   </div>
                 </div>
 
@@ -481,6 +525,17 @@
                   </button>
                 </div>
                 <pre class="command-text" id="cli-command-text">llama-server ...</pre>
+              </div>
+
+              <!-- Validation Results Console -->
+              <div class="glass-card" id="validation-console" style="margin-bottom:24px; padding:16px; border-color:var(--border-soft); display:none;">
+                <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--accent-pink); margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px; height:14px; stroke-width:2.5;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  Validation & Diagnostics
+                </div>
+                <div id="validation-errors" style="display:flex; flex-direction:column; gap:8px;">
+                  <!-- Dynamically populated diagnostics -->
+                </div>
               </div>
 
               <div class="form-actions">
@@ -702,6 +757,51 @@
         </div>
       </section>
 
+      <!-- Section: Security -->
+      <section id="section-security" class="content-section">
+        <header class="section-header">
+          <h2>Security Gateway</h2>
+          <p>Configure authentication keys to secure all proxy completions endpoints across serving profiles.</p>
+        </header>
+
+        <div class="glass-card" style="max-width: 600px; padding: 24px;">
+          <h3 style="margin-bottom: 8px;">Gateway API Token</h3>
+          <p class="field-hint" style="margin-bottom: 20px;">
+            When a token is configured, all requests sent to the Stable Gateway proxy routing endpoints (e.g. <code>/profiles/{id}/v1/...</code>) must supply a valid HTTP Bearer token.
+          </p>
+
+          <div class="form-group" style="margin-bottom: 20px;">
+            <label for="sec-gateway-token">Bearer Token (sk-...)</label>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="password" id="sec-gateway-token" placeholder="e.g. sk-a1b2c3d4e5f6..." style="flex: 1; height: 42px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border-soft); background: var(--bg-card); color: var(--text-main); font-family: monospace;">
+              <button type="button" class="btn btn-secondary" id="btn-toggle-sec-token" style="height: 42px; min-width: 80px; font-size: 0.8rem; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center;">Show</button>
+              <button type="button" class="btn btn-secondary" id="btn-gen-sec-token" style="height: 42px; min-width: 100px; font-size: 0.8rem; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center;">Generate</button>
+            </div>
+            <span class="field-hint" style="display: block; margin-top: 6px;">Leave blank to disable authentication on the proxy gateway.</span>
+          </div>
+
+          <div style="margin-top: 24px; display: flex; gap: 12px;">
+            <button class="btn btn-primary" id="btn-save-security">
+              <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+              Save Security Settings
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Client Integration Card -->
+        <div class="glass-card" style="max-width: 600px; padding: 24px; margin-top: 24px;" id="sec-integration-card">
+          <h3 style="margin-bottom: 12px;">Client Integration Example</h3>
+          <p class="field-hint" style="margin-bottom: 16px;">
+            To authenticate requests when calling the proxy from client libraries (e.g. OpenAI SDK, LangChain, or cURL):
+          </p>
+          <pre style="background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 6px; padding: 16px; font-family: monospace; font-size: 0.8rem; overflow-x: auto; color: var(--text-main); white-space: pre-wrap; word-break: break-all;" id="sec-curl-example">curl -X POST http://127.0.0.1:3100/profiles/{profile_id}/v1/chat/completions \
+  -H "Authorization: Bearer sk-xyz" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'</pre>
+        </div>
+      </section>
 
     </main>
   </div>

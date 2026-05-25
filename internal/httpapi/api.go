@@ -96,6 +96,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/health", auth(s.handleHealth))
 	mux.HandleFunc("GET /api/settings", auth(s.handleGetSettings))
 	mux.HandleFunc("PUT /api/settings", auth(s.handlePutSettings))
+	mux.HandleFunc("POST /api/settings/security", auth(s.handleUpdateSecurity))
 	mux.HandleFunc("POST /api/settings/validate-llama", auth(s.handleValidateLlama))
 
 	// 3. Models API
@@ -134,6 +135,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /profiles/{profile_id}/v1/chat/completions", s.handleProxyRoute)
 	mux.HandleFunc("POST /profiles/{profile_id}/v1/completions", s.handleProxyRoute)
 	mux.HandleFunc("POST /profiles/{profile_id}/v1/embeddings", s.handleProxyRoute)
+	mux.HandleFunc("POST /profiles/{profile_id}/rerank", s.handleProxyRoute)
 	mux.HandleFunc("GET /profiles/{profile_id}/health", s.handleProxyRoute)
 }
 
@@ -181,6 +183,25 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSONError(w, http.StatusForbidden, "Settings updates are disabled in WebUI for security. Please edit config.json directly on disk.")
+}
+
+func (s *Server) handleUpdateSecurity(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		GatewayToken string `json:"gateway_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.cfg.GatewayToken = payload.GatewayToken
+
+	if err := config.SaveConfig(s.cfg, s.cfgPath); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to save security settings: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.cfg)
 }
 
 func (s *Server) handleValidateLlama(w http.ResponseWriter, r *http.Request) {

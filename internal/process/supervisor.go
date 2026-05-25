@@ -173,18 +173,26 @@ func (s *Supervisor) StartServer(profileID string, configBinPath string, portRan
 	s.active[serverID] = proc
 
 	// Store in DB
+	nowStr := time.Now().Format(time.RFC3339)
 	srvRecord := storage.Server{
 		ID:              serverID,
+		InstanceID:      serverID,
 		ProfileID:       p.ID,
+		ProfileIDSpec:   p.ID,
 		ModelID:         m.ID,
 		PID:             cmd.Process.Pid,
 		Host:            host,
 		Port:            port,
+		BaseURL:         fmt.Sprintf("http://%s:%d", host, port),
 		Status:          "starting",
-		StartedAt:       time.Now().Format(time.RFC3339),
+		StartedAt:       nowStr,
+		StartedAtSpec:   nowStr,
 		ProfileSnapshot: p,
-		CreatedAt:       time.Now().Format(time.RFC3339),
-		UpdatedAt:       time.Now().Format(time.RFC3339),
+		Argv:            append([]string{built.Executable}, built.Args...),
+		LogPath:         logPath,
+		Health:          storage.ServerHealth{LastCheckAt: "", State: "unknown"},
+		CreatedAt:       nowStr,
+		UpdatedAt:       nowStr,
 	}
 	_ = s.db.SaveServer(srvRecord)
 
@@ -213,6 +221,13 @@ func (s *Supervisor) StopServer(serverID string) error {
 
 	proc.stopped = true
 
+	// Immediately update DB to show "stopping" state
+	if srv, ok := s.db.GetServer(serverID); ok {
+		srv.Status = "stopping"
+		srv.UpdatedAt = time.Now().Format(time.RFC3339)
+		_ = s.db.SaveServer(srv)
+	}
+
 	// Send Interrupt signal to let llama-server save/clean resources
 	_ = proc.cmd.Process.Signal(os.Interrupt)
 
@@ -240,24 +255,26 @@ func (s *Supervisor) StopServer(serverID string) error {
 }
 
 func (s *Supervisor) monitorProcess(proc *activeProcess, srv storage.Server) {
-	// 1. Monitor health endpoint in parallel
+	// 1. Continuous background heartbeat monitor
 	healthCtx, healthCancel := context.WithCancel(context.Background())
 	defer healthCancel()
 
 	go func() {
 		client := http.Client{Timeout: 1 * time.Second}
-		url := fmt.Sprintf("http://%s:%d/health", srv.Host, srv.Port)
-		fallbackURL := fmt.Sprintf("http://%s:%d/", srv.Host, srv.Port)
+		healthURL := fmt.Sprintf("http://%s:%d/health", srv.Host, srv.Port)
+		modelsURL := fmt.Sprintf("http://%s:%d/v1/models", srv.Host, srv.Port)
 		
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
+
+		isReady := false
 
 		for {
 			select {
 			case <-healthCtx.Done():
 				return
 			case <-ticker.C:
-				// First check if process is already dead
+				// First check if process is already dead in our supervisor list
 				s.mu.Lock()
 				_, stillRunning := s.active[proc.serverID]
 				s.mu.Unlock()
@@ -265,26 +282,56 @@ func (s *Supervisor) monitorProcess(proc *activeProcess, srv storage.Server) {
 					return
 				}
 
-				// Check standard /health first
-				req, _ := http.NewRequestWithContext(healthCtx, "GET", url, nil)
+				// Check primary health endpoint
+				req, _ := http.NewRequestWithContext(healthCtx, "GET", healthURL, nil)
 				resp, err := client.Do(req)
+				
+				checkSuccess := false
 				if err == nil {
 					resp.Body.Close()
 					if resp.StatusCode == http.StatusOK {
-						s.setServerStatus(proc.serverID, "healthy", "")
-						return
+						checkSuccess = true
 					}
 				}
 
-				// Try fallback / (some custom variants or older versions)
-				reqFallback, _ := http.NewRequestWithContext(healthCtx, "GET", fallbackURL, nil)
-				respFallback, errFallback := client.Do(reqFallback)
-				if errFallback == nil {
-					respFallback.Body.Close()
-					if respFallback.StatusCode == http.StatusOK {
-						s.setServerStatus(proc.serverID, "healthy", "")
-						return
+				// If health checked OK but not ready, verify models endpoint
+				if checkSuccess && !isReady {
+					modelsReq, _ := http.NewRequestWithContext(healthCtx, "GET", modelsURL, nil)
+					modelsResp, errModels := client.Do(modelsReq)
+					if errModels == nil {
+						modelsResp.Body.Close()
+						if modelsResp.StatusCode == http.StatusOK {
+							isReady = true
+							// Slow down check interval once fully ready
+							ticker.Reset(3 * time.Second)
+						}
 					}
+				}
+
+				nowStr := time.Now().Format(time.RFC3339)
+
+				// Update Server record in DB
+				if currentSrv, ok := s.db.GetServer(proc.serverID); ok {
+					currentSrv.Health.LastCheckAt = nowStr
+					if checkSuccess {
+						if isReady {
+							currentSrv.Status = "healthy"
+							currentSrv.Health.State = "healthy"
+						} else {
+							currentSrv.Status = "starting"
+							currentSrv.Health.State = "loading"
+						}
+					} else {
+						if isReady {
+							currentSrv.Status = "unhealthy"
+							currentSrv.Health.State = "unhealthy"
+						} else {
+							currentSrv.Status = "starting"
+							currentSrv.Health.State = "unknown"
+						}
+					}
+					currentSrv.UpdatedAt = nowStr
+					_ = s.db.SaveServer(currentSrv)
 				}
 			}
 		}
@@ -333,19 +380,20 @@ func (s *Supervisor) monitorProcess(proc *activeProcess, srv storage.Server) {
 		finalStatus = "crashed"
 	}
 
-	s.setServerStatus(proc.serverID, finalStatus, lastErr)
+	s.setServerStatus(proc.serverID, finalStatus, exitCode, lastErr)
 }
 
-func (s *Supervisor) setServerStatus(serverID string, status string, errStr string) {
+func (s *Supervisor) setServerStatus(serverID string, status string, exitCode int, errStr string) {
 	if srv, ok := s.db.GetServer(serverID); ok {
 		// Retain starting -> healthy transitions, but avoid healthy -> starting downgrades
-		if srv.Status == "healthy" && status == "starting" {
+		if (srv.Status == "healthy" || srv.Status == "ready") && status == "starting" {
 			return
 		}
 		srv.Status = status
 		if status == "stopped" || status == "crashed" {
 			srv.StoppedAt = time.Now().Format(time.RFC3339)
 			srv.PID = 0
+			srv.ExitCode = exitCode
 		}
 		if errStr != "" {
 			srv.LastError = errStr
