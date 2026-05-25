@@ -1046,13 +1046,14 @@ pre, code, textarea.code-font, .terminal-body {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
   padding: 16px;
-  min-height: 120px;
-  max-height: 350px;
-  overflow-y: auto;
+  height: 320px;
+  overflow-y: scroll;
   font-size: 0.9rem;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--text-primary);
   white-space: pre-wrap;
+  word-break: break-word;
+  scroll-behavior: smooth;
 }
 
 .placeholder-text {

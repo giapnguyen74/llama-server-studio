@@ -687,8 +687,44 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // Apply model-embedded defaults when the model selection changes in the profile builder
+  function applyModelDefaults(modelId) {
+    const model = state.models.find(m => m.id === modelId);
+    if (!model) return;
+
+    // ── Context length from GGUF metadata ─────────────────────────────────
+    const ctxSelect = document.getElementById("simple-ctx");
+    if (ctxSelect && model.context_length) {
+      const ctxVal = String(model.context_length);
+      // Add the option if it isn't already in the list
+      let found = false;
+      for (const opt of ctxSelect.options) {
+        if (opt.value === ctxVal) { found = true; break; }
+      }
+      if (!found) {
+        const opt = document.createElement("option");
+        opt.value = ctxVal;
+        opt.textContent = `${model.context_length.toLocaleString()} (model native)`;
+        // Insert before the last fixed options, after the blank default
+        ctxSelect.insertBefore(opt, ctxSelect.options[1]);
+      }
+      ctxSelect.value = ctxVal;
+    }
+
+    // ── GPU layers: default to full offload ───────────────────────────────
+    const nglInput = document.getElementById("simple-ngl");
+    if (nglInput && !nglInput.value) {
+      nglInput.value = "all";
+    }
+
+    updateCLIPreview();
+    updateVRAMEstimate();
+  }
+
   // Hook live updates
-  document.getElementById("profile-model").addEventListener("change", updateVRAMEstimate);
+  document.getElementById("profile-model").addEventListener("change", (e) => {
+    applyModelDefaults(e.target.value);
+  });
   document.getElementById("simple-ctx").addEventListener("change", updateVRAMEstimate);
 
   // Presets Click Binding
@@ -723,6 +759,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("adv-mem-mmap").value = "auto";
     document.getElementById("adv-mem-mlock").checked = false;
     document.getElementById("adv-mem-cacheprompt").checked = true;
+    document.getElementById("adv-cpu-moe").checked = false;
+    document.getElementById("adv-kv-unified").checked = false;
     document.getElementById("adv-cpu-numa").value = "";
     document.getElementById("adv-lora").value = "";
     document.getElementById("adv-spec-draft").value = "";
@@ -785,6 +823,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "adv-args", "adv-workdir", "adv-host",
     "adv-gpu-device", "adv-gpu-split", "adv-gpu-tensor", "adv-gpu-main",
     "adv-mem-flash", "adv-mem-mmap", "adv-mem-mlock", "adv-mem-cacheprompt",
+    "adv-cpu-moe", "adv-kv-unified",
     "adv-cpu-numa", "adv-lora", "adv-spec-draft", "adv-log-file",
     "adv-log-verbose", "adv-diag-perf",
     "simple-routing-enabled", "simple-routing-autostart", "simple-routing-policy"
@@ -876,6 +915,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("adv-mem-mmap").value = "auto";
     document.getElementById("adv-mem-mlock").checked = false;
     document.getElementById("adv-mem-cacheprompt").checked = true;
+    document.getElementById("adv-cpu-moe").checked = false;
+    document.getElementById("adv-kv-unified").checked = false;
     document.getElementById("adv-cpu-numa").value = "";
     document.getElementById("adv-lora").value = "";
     document.getElementById("adv-spec-draft").value = "";
@@ -884,7 +925,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("adv-diag-perf").checked = true;
     document.getElementById("adv-workdir").value = "";
     document.getElementById("adv-host").value = "127.0.0.1";
-    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots"]';
+    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots", "--jinja"]';
     document.getElementById("simple-routing-enabled").checked = true;
     document.getElementById("simple-routing-autostart").checked = false;
     document.getElementById("simple-routing-policy").value = "latest-ready";
@@ -975,13 +1016,14 @@ document.addEventListener("DOMContentLoaded", () => {
     let cpuNuma = "";
     let lora = "", specDraft = "", logFile = "";
     let logVerbose = false, diagPerf = true;
+    let cpuMoe = false, kvUnified = false;
 
     const parsedFlags = [
       "-c", "-ngl", "-t", "-b", "-np", "-m", "--model", "--host", "--port", "-p",
       "--device", "-sm", "-ts", "-mg", "--flash-attn", "--no-flash-attn", 
       "--mmap", "--no-mmap", "--mlock", "--no-cache-prompt", "--numa",
       "--lora", "--model-draft", "--log-file", "--verbose", "-v", "--log-verbose",
-      "--perf", "--no-perf"
+      "--perf", "--no-perf", "--cpu-moe", "--kv-unified", "-kvu"
     ];
 
     const flagsWithArgs = [
@@ -1008,6 +1050,8 @@ document.addEventListener("DOMContentLoaded", () => {
       else if (args[i] === "--verbose" || args[i] === "-v" || args[i] === "--log-verbose") { logVerbose = true; }
       else if (args[i] === "--perf") { diagPerf = true; }
       else if (args[i] === "--no-perf") { diagPerf = false; }
+      else if (args[i] === "--cpu-moe") { cpuMoe = true; }
+      else if (args[i] === "--kv-unified" || args[i] === "-kvu") { kvUnified = true; }
       else if (parsedFlags.includes(args[i])) {
         // Skip structured parameters
         if (flagsWithArgs.includes(args[i])) {
@@ -1030,6 +1074,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("adv-mem-mmap").value = memMmap;
     document.getElementById("adv-mem-mlock").checked = memMlock;
     document.getElementById("adv-mem-cacheprompt").checked = memCachePrompt;
+    document.getElementById("adv-cpu-moe").checked = cpuMoe;
+    document.getElementById("adv-kv-unified").checked = kvUnified;
     document.getElementById("adv-cpu-numa").value = cpuNuma;
     document.getElementById("adv-lora").value = lora;
     document.getElementById("adv-spec-draft").value = specDraft;
@@ -1110,6 +1156,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!document.getElementById("adv-mem-cacheprompt").checked) {
       builtArgs.push("--no-cache-prompt");
+    }
+
+    if (document.getElementById("adv-cpu-moe").checked) {
+      builtArgs.push("--cpu-moe");
+    }
+
+    if (document.getElementById("adv-kv-unified").checked) {
+      builtArgs.push("--kv-unified");
     }
 
     const cpuNuma = document.getElementById("adv-cpu-numa").value;

@@ -455,6 +455,16 @@
                       <span>Prompt Caching (<code>--cache-prompt</code>)</span>
                     </label>
                   </div>
+                  <div class="form-group d-flex-align" style="flex-direction:row; gap:16px;">
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="adv-cpu-moe">
+                      <span>CPU MoE Offload (<code>--cpu-moe</code>)</span>
+                    </label>
+                    <label class="checkbox-container">
+                      <input type="checkbox" id="adv-kv-unified">
+                      <span>Unified KV Cache (<code>--kv-unified</code>)</span>
+                    </label>
+                  </div>
                   <div class="form-group">
                     <label for="adv-cpu-numa">NUMA Optimization (<code>--numa</code>)</label>
                     <select id="adv-cpu-numa">
