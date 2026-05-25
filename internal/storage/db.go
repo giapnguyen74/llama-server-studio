@@ -259,6 +259,18 @@ func (db *DB) HideModel(id string, hidden bool) error {
 	return db.save("models.json", db.models)
 }
 
+func (db *DB) ClearScannedModels() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	for id, m := range db.models {
+		if m.Source == "local_dir" || m.Source == "huggingface_cache" {
+			delete(db.models, id)
+		}
+	}
+	return db.save("models.json", db.models)
+}
+
 // --- Profiles CRUD ---
 
 func (db *DB) SaveProfile(p Profile) error {

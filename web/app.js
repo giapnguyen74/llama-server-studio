@@ -871,8 +871,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const cpuData = state.telemetryHistory.cpu;
     if (cpuData.length < 2) return;
 
+    // Dynamically retrieve active CSS custom properties for proper paper-white theme coordination
+    const computedStyle = getComputedStyle(document.documentElement);
+    const borderSoft = computedStyle.getPropertyValue("--border-soft").trim() || "#eee6d9";
+    const accentPink = computedStyle.getPropertyValue("--accent-pink").trim() || "#8b5e34";
+
     // Draw grid
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
+    ctx.strokeStyle = borderSoft;
     ctx.lineWidth = 1;
     for (let i = 20; i < width; i += 20) {
       ctx.beginPath();
@@ -887,9 +892,9 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.stroke();
     }
 
-    // Plot CPU sparkline (pink glow)
+    // Plot CPU sparkline
     ctx.beginPath();
-    ctx.strokeStyle = "hsl(330, 95%, 65%)";
+    ctx.strokeStyle = accentPink;
     ctx.lineWidth = 2.5;
     
     const step = width / (cpuData.length - 1);

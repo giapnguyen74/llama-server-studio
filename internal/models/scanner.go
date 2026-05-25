@@ -3,7 +3,6 @@ package models
 import (
 	"crypto/md5"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +78,18 @@ func InferredRepoID(path string) string {
 
 // ScanDirectories recursively searches for `.gguf` files in given folders and updates the DB.
 func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []string) error {
+	// Rebuild catalog freshly on every startup or manual scan by clearing previous cached entries
+	_ = db.ClearScannedModels()
+
+	fmt.Printf("\n[Scanner] Starting GGUF model files crawl...\n")
+	fmt.Printf("[Scanner]   Scan Targets: %s\n", strings.Join(localDirs, ", "))
+	if scanHF && len(hfDirs) > 0 {
+		fmt.Printf("[Scanner]   HF Cache Targets: %s\n", strings.Join(hfDirs, ", "))
+	}
+
 	scannedFiles := make(map[string]bool)
+	processedDirs := make(map[string]bool)
+	modelsCount := 0
 
 	// Helper to add/update a GGUF file in DB
 	processFile := func(path string, source string) {
@@ -99,18 +109,13 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 			return
 		}
 
+		sizeGB := float64(info.Size()) / (1024 * 1024 * 1024)
+		fmt.Printf("[Scanner] Found GGUF file: %s (%.2f GB)\n", filepath.Base(resolvedPath), sizeGB)
+
 		// Generate stable ID from path hash
 		h := md5.New()
 		h.Write([]byte(resolvedPath))
 		modelID := fmt.Sprintf("%x", h.Sum(nil))
-
-		// Check if it already exists in DB to prevent re-parsing unchanged files
-		if existing, ok := db.GetModel(modelID); ok {
-			if existing.ModifiedAt == info.ModTime().Format(time.RFC3339) && existing.SizeBytes == info.Size() {
-				// File hasn't changed, retain it in Catalog
-				return
-			}
-		}
 
 		// Parse GGUF metadata
 		metadata, err := gguf.ReadMetadata(resolvedPath)
@@ -154,6 +159,10 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 			if ft, ok := metadata["general.file_type"].(uint32); ok {
 				quant = fileTypeMap[ft]
 			}
+
+			fmt.Printf("[Scanner]   └─ GGUF Header parsed successfully (Arch: %s, Quant: %s, Context: %d)\n", arch, quant, ctxLen)
+		} else {
+			fmt.Printf("[Scanner]   └─ [Warning] GGUF metadata parsing failed: %v. Using fallbacks.\n", err)
 		}
 
 		// Fallbacks
@@ -201,44 +210,71 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 		}
 
 		_ = db.SaveModel(m)
-	}
-
-	// Recursively walk through a directory
-	walkDir := func(root string, source string) {
-		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil // Continue walking, skip errors
-			}
-
-			// Don't dive too deep
-			if d.IsDir() {
-				// Skip hidden directories (like .git, .github)
-				if strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-
-			if strings.HasSuffix(strings.ToLower(d.Name()), ".gguf") {
-				processFile(path, source)
-			}
-			return nil
-		})
+		modelsCount++
 	}
 
 	// 1. Scan user local directories
 	for _, dir := range localDirs {
-		walkDir(dir, "local_dir")
+		walkDirRecursive(dir, "local_dir", 1, 8, processedDirs, processFile)
 	}
 
 	// 2. Scan Hugging Face cache if active
 	if scanHF {
 		for _, dir := range hfDirs {
-			walkDir(dir, "huggingface_cache")
+			walkDirRecursive(dir, "huggingface_cache", 1, 8, processedDirs, processFile)
 		}
 	}
 
+	fmt.Printf("[Scanner] Crawl finished! Discovered and cataloged %d model files.\n\n", modelsCount)
 	return nil
+}
+
+// walkDirRecursive custom walker traverses directory trees, following directory symlinks up to maxDepth levels.
+func walkDirRecursive(path string, source string, depth int, maxDepth int, processedDirs map[string]bool, processFile func(string, string)) {
+	if depth > maxDepth {
+		return
+	}
+
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return
+	}
+
+	// Avoid directory cycles / double traversals
+	if processedDirs[resolvedPath] {
+		return
+	}
+	processedDirs[resolvedPath] = true
+
+	entries, err := os.ReadDir(resolvedPath)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			continue // Skip hidden directories
+		}
+
+		fullPath := filepath.Join(resolvedPath, name)
+		
+		isDir := entry.IsDir()
+		if !isDir && (entry.Type()&os.ModeSymlink != 0) {
+			// Probe if directory symlink
+			if info, err := os.Stat(fullPath); err == nil {
+				isDir = info.IsDir()
+			}
+		}
+
+		if isDir {
+			walkDirRecursive(fullPath, source, depth+1, maxDepth, processedDirs, processFile)
+		} else {
+			if strings.HasSuffix(strings.ToLower(name), ".gguf") {
+				processFile(fullPath, source)
+			}
+		}
+	}
 }
 
 // AddManualModel loads a model from a single direct file path.
