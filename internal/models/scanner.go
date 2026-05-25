@@ -167,10 +167,10 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 
 		// Fallbacks
 		if name == "" {
-			name = filepath.Base(resolvedPath)
+			name = filepath.Base(path)
 		}
 		if quant == "" {
-			quant = InferredQuantizationFromName(filepath.Base(resolvedPath))
+			quant = InferredQuantizationFromName(filepath.Base(path))
 		}
 		if ctxLen == 0 {
 			ctxLen = 2048 // Default fallback context size
@@ -192,7 +192,7 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 			ID:              modelID,
 			Path:            path,
 			ResolvedPath:    resolvedPath,
-			DisplayName:     filepath.Base(resolvedPath),
+			DisplayName:     filepath.Base(path),
 			Source:          source,
 			RepoID:          repoID,
 			SizeBytes:       info.Size(),
@@ -337,10 +337,10 @@ func AddManualModel(db *storage.DB, path string) (storage.Model, error) {
 	}
 
 	if name == "" {
-		name = filepath.Base(resolvedPath)
+		name = filepath.Base(path)
 	}
 	if quant == "" {
-		quant = InferredQuantizationFromName(filepath.Base(resolvedPath))
+		quant = InferredQuantizationFromName(filepath.Base(path))
 	}
 	if ctxLen == 0 {
 		ctxLen = 2048
@@ -358,7 +358,7 @@ func AddManualModel(db *storage.DB, path string) (storage.Model, error) {
 		ID:              modelID,
 		Path:            path,
 		ResolvedPath:    resolvedPath,
-		DisplayName:     filepath.Base(resolvedPath),
+		DisplayName:     filepath.Base(path),
 		Source:          "manual",
 		SizeBytes:       info.Size(),
 		ModifiedAt:      info.ModTime().Format(time.RFC3339),
