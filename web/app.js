@@ -122,6 +122,109 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- 2. GLOBAL POLLING & API HANDLERS ---
 
+  // ---------------------------------------------------------------------------
+  // CORS guide banner
+  //
+  // fetch() throws TypeError (no HTTP response at all) when the browser blocks
+  // a cross-origin request.  The most common cause here is accessing the UI
+  // from a non-loopback address (e.g. http://192.168.1.x:3100) while the
+  // server's `listen` field is set to `0.0.0.0:3100`.  The server only
+  // accepts the exact origin it hears on; every other origin must be listed
+  // in `allowed_origins` in config.json.
+  //
+  // The same TypeError fires when the server is simply offline, so the banner
+  // notes that case and stays dismissable.
+  // ---------------------------------------------------------------------------
+
+  let _corsGuideSeen = false;
+
+  function showCorsGuide() {
+    if (_corsGuideSeen || document.getElementById("cors-guide-banner")) return;
+    _corsGuideSeen = true;
+
+    const origin     = window.location.origin;   // e.g. "http://192.168.1.42:3100"
+    const configPath = "~/.config/llama-server-studio/config.json";
+
+    // Build the exact JSON patch the user needs to add.
+    const snippet =
+      `{\n` +
+      `  ...\n` +
+      `  "allowed_origins": ["${origin}"]\n` +
+      `}`;
+
+    // Banner container
+    const banner = h("div", {
+      id:    "cors-guide-banner",
+      role:  "alert",
+      style: "position:fixed;top:0;left:0;right:0;z-index:9999;" +
+             "background:#7f1d1d;color:#fef2f2;" +
+             "padding:16px 56px 16px 20px;font-size:0.85rem;line-height:1.6;" +
+             "box-shadow:0 3px 12px rgba(0,0,0,.55);"
+    });
+
+    // Title row
+    banner.append(h("strong", {style: "font-size:0.95rem;display:block;margin-bottom:6px;"},
+      "CORS error — browser blocked a cross-origin request"));
+
+    // Explanation paragraph — built with DOM nodes so no escaping needed
+    const inlineCode = s => h("code", {
+      style: "background:rgba(0,0,0,.35);padding:1px 6px;border-radius:3px;font-size:0.82rem;"
+    }, s);
+
+    const explainP = document.createElement("p");
+    explainP.style.cssText = "margin:0 0 10px;";
+    explainP.append(
+      "The browser is loading this page from ",
+      inlineCode(origin),
+      ", which is not the server’s own origin. " +
+      "Add your origin to ",
+      inlineCode("allowed_origins"),
+      " in ",
+      inlineCode(configPath),
+      " and restart the server:"
+    );
+    banner.append(explainP);
+
+    // Config snippet
+    const pre = document.createElement("pre");
+    pre.style.cssText =
+      "background:rgba(0,0,0,.4);padding:10px 14px;border-radius:6px;" +
+      "font-size:0.8rem;margin:0 0 10px;overflow-x:auto;white-space:pre;" +
+      "border-left:3px solid rgba(255,255,255,.3);";
+    pre.textContent = snippet;
+    banner.append(pre);
+
+    // Step list
+    const steps = document.createElement("ol");
+    steps.style.cssText = "margin:0 0 10px;padding-left:1.4em;";
+    [
+      ["Open ", inlineCode(configPath)],
+      ['Add or extend the ', inlineCode('"allowed_origins"'), ' array as shown above.'],
+      ["Save the file, then restart llama-server-studio."],
+    ].forEach(parts => {
+      const li = document.createElement("li");
+      li.append(...parts.map(p => typeof p === "string" ? document.createTextNode(p) : p));
+      steps.append(li);
+    });
+    banner.append(steps);
+
+    // Caveat note
+    banner.append(h("p", {style: "margin:0;font-size:0.78rem;opacity:.75;"},
+      "This banner also appears when the server is not running — dismiss it if that is the case."));
+
+    // Dismiss button
+    const closeBtn = h("button", {
+      "aria-label": "Dismiss CORS guide",
+      style: "position:absolute;top:14px;right:16px;background:transparent;" +
+             "border:1px solid rgba(255,255,255,.5);color:inherit;" +
+             "padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.82rem;"
+    }, "✕ Dismiss");
+    closeBtn.addEventListener("click", () => banner.remove());
+    banner.append(closeBtn);
+
+    document.body.prepend(banner);
+  }
+
   async function apiCall(url, method = "GET", body = null) {
     try {
       const options = { method, headers: {} };
@@ -144,6 +247,11 @@ document.addEventListener("DOMContentLoaded", () => {
       return await response.json();
     } catch (err) {
       console.error(`API Call failed (${url}):`, err);
+      // TypeError with no HTTP response = CORS block or server unreachable.
+      // Show the config guide so the user knows how to allow cross-origin access.
+      if (err instanceof TypeError) {
+        showCorsGuide();
+      }
       throw err;
     }
   }
@@ -1166,63 +1274,98 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- 6. SERVER LIFECYCLE SECTION ---
 
-  const selectLifecycleSrv = document.getElementById("server-lifecycle-select");
+  const lifecycleProfilesList = document.getElementById("lifecycle-profiles-list");
   const lifecycleDetails = document.getElementById("lifecycle-details-container");
   const lifecycleEmpty = document.getElementById("lifecycle-empty-state");
 
+  const btnStartSrv = document.getElementById("btn-start-srv");
   const btnStopSrv = document.getElementById("btn-stop-srv");
   const btnRestartSrv = document.getElementById("btn-restart-srv");
 
-  selectLifecycleSrv.addEventListener("change", () => {
-    selectServerInLifecycle(selectLifecycleSrv.value);
-  });
-
+  // Helper to start server from ANY tab
   async function launchServerInstance(profileID) {
     try {
-      alert("Launching llama-server child process. Check Server Lifecycle tab to monitor status...");
       const srvRecord = await apiCall(`/api/profiles/${profileID}/start`, "POST");
       await loadData();
       
-      // Go to servers tab and show status
+      // Select the profile in lifecycle tab
+      state.activeProfileIdInLifecycle = profileID;
       document.querySelector("[data-target=servers]").click();
       setTimeout(() => {
-        selectServerInLifecycle(srvRecord.id);
+        selectProfileInLifecycle(profileID);
       }, 200);
     } catch (err) {
       alert(`Start failed: ${err.message}`);
     }
   }
 
+  // Populate profiles in the left lifecycle list
   function loadServerLifecycleView() {
-    // Populate select items
-    selectLifecycleSrv.replaceChildren(
-      h("option", {value: ""}, "Select a Running or Crashed Server..."),
-      ...state.servers.map(s => {
-        const p = state.profiles.find(prof => prof.id === s.profile_id);
-        const name = p ? p.name : "Serving Profile";
-        return h("option", {value: s.id}, `${name} (PID: ${s.pid || "Stopped"} | status: ${s.status})`);
+    if (!lifecycleProfilesList) return;
+    if (state.profiles.length === 0) {
+      lifecycleProfilesList.replaceChildren(h("div", {class: "empty-state"}, "No saved profiles."));
+      lifecycleDetails.style.display = "none";
+      lifecycleEmpty.style.display = "block";
+      clearIntervals();
+      return;
+    }
+
+    lifecycleProfilesList.replaceChildren(
+      ...state.profiles.map(p => {
+        const activeSrv = state.servers.find(s => s.profile_id === p.id && s.status !== "stopped");
+        const status = activeSrv ? activeSrv.status : "stopped";
+        
+        let statusCls = "gray";
+        if (status === "healthy" || status === "ready") statusCls = "green";
+        else if (status === "crashed") statusCls = "red";
+        else if (status === "starting" || status === "loading") statusCls = "yellow";
+
+        const m = state.models.find(mod => mod.id === p.model_id);
+        const modelName = m ? m.display_name : "GGUF Model";
+
+        const btn = h("button", {
+          class: `profile-item-btn ${state.activeProfileIdInLifecycle === p.id ? "active" : ""}`,
+          style: "display: flex; flex-direction: column; width: 100%; text-align: left;"
+        },
+          h("div", {style: "display:flex; justify-content:space-between; align-items:center; width:100%;"},
+            h("strong", {class: "profile-item-title"}, p.name),
+            h("span", {class: `status-pill ${statusCls}`, style: "font-size:0.65rem; padding: 2px 6px;"}, status)
+          ),
+          h("span", {class: "profile-item-meta"}, modelName)
+        );
+
+        btn.addEventListener("click", () => selectProfileInLifecycle(p.id));
+        return btn;
       })
     );
 
-    if (state.activeServerId) {
-      selectLifecycleSrv.value = state.activeServerId;
-      selectServerInLifecycle(state.activeServerId);
-    } else if (state.servers.length > 0) {
-      // Default select first
-      selectLifecycleSrv.value = state.servers[0].id;
-      selectServerInLifecycle(state.servers[0].id);
-    } else {
-      lifecycleDetails.style.display = "none";
-      lifecycleEmpty.style.display = "block";
+    // Auto-select active or first profile on first load
+    if (state.activeProfileIdInLifecycle) {
+      selectProfileInLifecycle(state.activeProfileIdInLifecycle);
+    } else if (state.profiles.length > 0) {
+      selectProfileInLifecycle(state.profiles[0].id);
     }
   }
 
-  window.selectServerInLifecycle = function(serverID) {
-    state.activeServerId = serverID;
-    selectLifecycleSrv.value = serverID;
+  // Hook up select server by profile ID
+  window.selectProfileInLifecycle = function(profileID) {
+    state.activeProfileIdInLifecycle = profileID;
     
-    const s = state.servers.find(srv => srv.id === serverID);
-    if (!s) {
+    // Highlight sidebar active item
+    if (lifecycleProfilesList) {
+      const buttons = lifecycleProfilesList.querySelectorAll(".profile-item-btn");
+      buttons.forEach((btn, idx) => {
+        const p = state.profiles[idx];
+        if (p && p.id === profileID) {
+          btn.classList.add("active");
+        } else {
+          btn.classList.remove("active");
+        }
+      });
+    }
+
+    const p = state.profiles.find(prof => prof.id === profileID);
+    if (!p) {
       lifecycleDetails.style.display = "none";
       lifecycleEmpty.style.display = "block";
       clearIntervals();
@@ -1232,19 +1375,63 @@ document.addEventListener("DOMContentLoaded", () => {
     lifecycleDetails.style.display = "block";
     lifecycleEmpty.style.display = "none";
 
-    // Setup values
-    document.getElementById("srv-status-badge").className = `tel-val status-pill ${s.status === "healthy" ? "green" : (s.status === "crashed" ? "red" : "yellow")}`;
-    document.getElementById("srv-status-badge").textContent = s.status;
-    document.getElementById("srv-pid-val").textContent = s.pid || "-";
-    document.getElementById("srv-port-val").textContent = s.port;
-    document.getElementById("stable-route-url").textContent = `/profiles/${s.profile_id}/v1/completions`;
+    const s = state.servers.find(srv => srv.profile_id === profileID && srv.status !== "stopped");
+    document.getElementById("stable-route-url").textContent = `/profiles/${profileID}/v1/completions`;
 
-    // Start logs & stats loops
-    clearIntervals();
-    pollServerLogs(serverID);
-    pollServerTelemetry(serverID);
-    state.logPollInterval = setInterval(() => pollServerLogs(serverID), 1000);
-    state.statsPollInterval = setInterval(() => pollServerTelemetry(serverID), 1500);
+    if (!s) {
+      // Server is stopped
+      clearIntervals();
+      state.activeServerId = null;
+
+      // Show start button, hide stop/restart
+      btnStartSrv.style.display = "inline-flex";
+      btnStopSrv.style.display = "none";
+      btnRestartSrv.style.display = "none";
+
+      document.getElementById("srv-status-badge").className = "tel-val status-pill gray";
+      document.getElementById("srv-status-badge").textContent = "stopped";
+      document.getElementById("srv-pid-val").textContent = "-";
+      document.getElementById("srv-port-val").textContent = p.port || "-";
+      document.getElementById("srv-uptime-val").textContent = "Stopped";
+
+      document.getElementById("realtime-cpu").textContent = "0%";
+      document.getElementById("realtime-mem").textContent = "0.00 GB";
+
+      // Console placeholder
+      document.getElementById("server-log-console").replaceChildren(
+        h("div", {class: "terminal-line system-line"}, `[System] Server for profile "${p.name}" is currently offline.`),
+        h("div", {class: "terminal-line system-line"}, `[System] Click "Start Server" to boot it using GGUF model: ${p.model_id}`)
+      );
+    } else {
+      // Server is running/starting/crashed
+      state.activeServerId = s.id;
+
+      // Hide start button, show stop/restart
+      btnStartSrv.style.display = "none";
+      btnStopSrv.style.display = "inline-flex";
+      btnRestartSrv.style.display = "inline-flex";
+
+      const statusCls = s.status === "healthy" || s.status === "ready" ? "green" : (s.status === "crashed" ? "red" : "yellow");
+      document.getElementById("srv-status-badge").className = `tel-val status-pill ${statusCls}`;
+      document.getElementById("srv-status-badge").textContent = s.status;
+      document.getElementById("srv-pid-val").textContent = s.pid || "-";
+      document.getElementById("srv-port-val").textContent = s.port;
+
+      // Start polling
+      clearIntervals();
+      pollServerLogs(s.id);
+      pollServerTelemetry(s.id);
+      state.logPollInterval = setInterval(() => pollServerLogs(s.id), 1000);
+      state.statsPollInterval = setInterval(() => pollServerTelemetry(s.id), 1500);
+    }
+  };
+
+  // Keep compatibility for clicking on servers from dashboard
+  window.selectServerInLifecycle = function(serverID) {
+    const s = state.servers.find(srv => srv.id === serverID);
+    if (s) {
+      selectProfileInLifecycle(s.profile_id);
+    }
   };
 
   function clearIntervals() {
@@ -1258,19 +1445,26 @@ document.addEventListener("DOMContentLoaded", () => {
       const consoleBox = document.getElementById("server-log-console");
       
       if (logs.length === 0) {
-        consoleBox.innerHTML = `<div class="terminal-line system-line">[System] Log empty. Server starting...</div>`;
+        consoleBox.replaceChildren(h("div", {class: "terminal-line system-line"}, "[System] Log empty. Server starting..."));
       } else {
-        consoleBox.innerHTML = logs.map(line => {
-          let c = "terminal-line";
-          if (line.includes("[System]") || line.includes("LLAMA SERVER STUDIO")) c = "terminal-line system-line";
-          if (line.includes("error") || line.includes("fail") || line.includes("ERR")) c = "terminal-line err-line";
-          return `<div class="${c}">${escapeHtml(line)}</div>`;
-        }).join("");
+        consoleBox.replaceChildren(
+          ...logs.map(line => {
+            let c = "terminal-line";
+            if (line.includes("[System]") || line.includes("LLAMA SERVER STUDIO")) c = "terminal-line system-line";
+            if (line.includes("error") || line.includes("fail") || line.includes("ERR")) c = "terminal-line err-line";
+            const div = document.createElement("div");
+            div.className = c;
+            div.textContent = line; // secure
+            return div;
+          })
+        );
         // Auto Scroll to bottom
         consoleBox.scrollTop = consoleBox.scrollHeight;
       }
     } catch {
-      document.getElementById("server-log-console").innerHTML = `<div class="terminal-line err-line">[System] Failed to read disk logs.</div>`;
+      document.getElementById("server-log-console").replaceChildren(
+        h("div", {class: "terminal-line err-line"}, "[System] Failed to read disk logs.")
+      );
     }
   }
 
@@ -1280,7 +1474,8 @@ document.addEventListener("DOMContentLoaded", () => {
       state.servers = await apiCall("/api/servers");
       const s = state.servers.find(srv => srv.id === serverID);
       if (s) {
-        document.getElementById("srv-status-badge").className = `tel-val status-pill ${s.status === "healthy" ? "green" : (s.status === "crashed" ? "red" : "yellow")}`;
+        const statusCls = s.status === "healthy" || s.status === "ready" ? "green" : (s.status === "crashed" ? "red" : "yellow");
+        document.getElementById("srv-status-badge").className = `tel-val status-pill ${statusCls}`;
         document.getElementById("srv-status-badge").textContent = s.status;
         document.getElementById("srv-pid-val").textContent = s.pid || "-";
         
@@ -1309,6 +1504,30 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch {}
   }
 
+  // Start click (Lifecycle)
+  btnStartSrv.addEventListener("click", async () => {
+    const profileID = state.activeProfileIdInLifecycle;
+    if (!profileID) return;
+    
+    const icon = btnStartSrv.querySelector(".btn-icon-svg");
+    if (icon) icon.classList.add("spin");
+    const textNode = [...btnStartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    if (textNode) textNode.textContent = " Starting...";
+    btnStartSrv.disabled = true;
+    
+    try {
+      await apiCall(`/api/profiles/${profileID}/start`, "POST");
+      await loadData();
+      selectProfileInLifecycle(profileID);
+    } catch (err) {
+      alert(`Start failed: ${err.message}`);
+    } finally {
+      if (icon) icon.classList.remove("spin");
+      if (textNode) textNode.textContent = " Start Server";
+      btnStartSrv.disabled = false;
+    }
+  });
+
   // Stop click
   btnStopSrv.addEventListener("click", async () => {
     if (state.activeServerId) {
@@ -1320,7 +1539,7 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         await apiCall(`/api/servers/${state.activeServerId}/stop`, "POST");
         await loadData();
-        selectServerInLifecycle(state.activeServerId);
+        selectProfileInLifecycle(state.activeProfileIdInLifecycle);
       } catch (err) {
         alert(err.message);
       } finally {
@@ -1342,7 +1561,7 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         await apiCall(`/api/servers/${state.activeServerId}/restart`, "POST");
         await loadData();
-        selectServerInLifecycle(state.activeServerId);
+        selectProfileInLifecycle(state.activeProfileIdInLifecycle);
       } catch (err) {
         alert(err.message);
       } finally {

@@ -13,8 +13,10 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+
 
 	"llama-server-studio/internal/bench"
 	"llama-server-studio/internal/config"
@@ -167,6 +169,17 @@ func main() {
 	benchRunner := bench.NewRunner(db, supervisor)
 	proxyRouter := router.NewRouter(db, supervisor, cfg)
 
+	// Reattach orphaned processes from previous run
+	for _, srv := range db.ListServers() {
+		if srv.PID > 0 && srv.Status != "stopped" && srv.Status != "crashed" {
+			if err := supervisor.Reattach(srv.ID); err != nil {
+				log.Printf("[Orphan] Failed to reattach process %s: %v", srv.ID, err)
+			} else {
+				log.Printf("[Orphan] Successfully reattached active process %s (PID: %d)", srv.ID, srv.PID)
+			}
+		}
+	}
+
 	// 7. Background Context for Workers
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -202,12 +215,30 @@ func main() {
 	log.Println("Shutting down llama-server-studio...")
 	cancel() // terminate background monitoring goroutines
 	
-	// Terminate any remaining active child processes gracefully
+	// Terminate any remaining active child processes gracefully in parallel
+	var stopWG sync.WaitGroup
 	for _, srv := range db.ListServers() {
-		if srv.Status == "healthy" || srv.Status == "starting" {
-			log.Printf("Stopping active child process PID %d...", srv.PID)
-			_ = supervisor.StopServer(srv.ID)
+		if srv.Status == "healthy" || srv.Status == "starting" || srv.Status == "stopping" {
+			stopWG.Add(1)
+			go func(id string, pid int) {
+				defer stopWG.Done()
+				log.Printf("Stopping active child process PID %d...", pid)
+				_ = supervisor.StopServer(id)
+			}(srv.ID, srv.PID)
 		}
+	}
+
+	doneChan := make(chan struct{})
+	go func() {
+		stopWG.Wait()
+		close(doneChan)
+	}()
+
+	select {
+	case <-doneChan:
+		log.Println("All child processes exited cleanly.")
+	case <-time.After(15 * time.Second):
+		log.Println("Timeout reached waiting for children to shut down; forcing exit.")
 	}
 	
 	log.Println("Studio exited cleanly.")

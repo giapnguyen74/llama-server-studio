@@ -493,13 +493,24 @@ func (s *Server) handleRestartServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Stop it
 	_ = s.supervisor.StopServer(id)
-	
-	// Wait a moment
-	time.Sleep(1 * time.Second)
 
-	// 2. Start it again
+	// Poll until the old child has exited AND its port is free.
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		cur, _ := s.db.GetServer(id)
+		if (cur.Status == "stopped" || cur.Status == "crashed") &&
+			s.supervisor.IsPortAvailable(srv.Host, srv.Port) {
+			break
+		}
+		select {
+		case <-r.Context().Done():
+			writeJSONError(w, 499, "client cancelled")
+			return
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
+
 	newSrvID, err := s.supervisor.StartServer(srv.ProfileID, s.cfg.LlamaServerBin, s.cfg.PortRangeStart, s.cfg.PortRangeEnd)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())

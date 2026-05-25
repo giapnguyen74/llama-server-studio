@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -190,13 +191,18 @@ func Open(dataDir string) (*DB, error) {
 	}
 
 	// Sanity clean-up: if any servers are "starting", "healthy", etc. on launch, reset them to "stopped"
-	// since the studio process just started.
+	// UNLESS the process is actually still alive (orphaned from previous studio run).
 	dirty := false
+	nowStr := time.Now().Format(time.RFC3339)
 	for id, s := range db.servers {
 		if s.Status != "stopped" && s.Status != "crashed" {
+			if s.PID > 0 && processAlive(s.PID) {
+				// Leave the record; supervisor will reattach.
+				continue
+			}
 			s.Status = "stopped"
 			s.PID = 0
-			s.UpdatedAt = time.Now().Format(time.RFC3339)
+			s.UpdatedAt = nowStr
 			db.servers[id] = s
 			dirty = true
 		}
@@ -206,6 +212,14 @@ func Open(dataDir string) (*DB, error) {
 	}
 
 	return db, nil
+}
+
+func processAlive(pid int) bool {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return p.Signal(syscall.Signal(0)) == nil
 }
 
 // Helpers for atomic JSON save/load
