@@ -1366,34 +1366,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    lifecycleProfilesList.replaceChildren(
-      ...state.profiles.map(p => {
-        const activeSrv = state.servers.find(s => s.profile_id === p.id && s.status !== "stopped");
-        const status = activeSrv ? activeSrv.status : "stopped";
-        
-        let statusCls = "gray";
-        if (status === "healthy" || status === "ready") statusCls = "green";
-        else if (status === "crashed") statusCls = "red";
-        else if (status === "starting" || status === "loading") statusCls = "yellow";
-
-        const m = state.models.find(mod => mod.id === p.model_id);
-        const modelName = m ? m.display_name : "GGUF Model";
-
-        const btn = h("button", {
-          class: `profile-item-btn ${state.activeProfileIdInLifecycle === p.id ? "active" : ""}`,
-          style: "display: flex; flex-direction: column; width: 100%; text-align: left;"
-        },
-          h("div", {style: "display:flex; justify-content:space-between; align-items:center; width:100%;"},
-            h("strong", {class: "profile-item-title"}, p.name),
-            h("span", {class: `status-pill ${statusCls}`, style: "font-size:0.65rem; padding: 2px 6px;"}, status)
-          ),
-          h("span", {class: "profile-item-meta"}, modelName)
-        );
-
-        btn.addEventListener("click", () => selectProfileInLifecycle(p.id));
-        return btn;
-      })
-    );
+    refreshProfileSidebarCards();
 
     // Auto-select active or first profile on first load
     if (state.activeProfileIdInLifecycle) {
@@ -1401,6 +1374,82 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (state.profiles.length > 0) {
       selectProfileInLifecycle(state.profiles[0].id);
     }
+  }
+
+  // Lightweight sidebar refresh — re-renders profile cards without touching the right
+  // panel or clearing polling intervals.  Called from pollServerTelemetry each tick.
+  function refreshProfileSidebarCards() {
+    if (!lifecycleProfilesList || state.profiles.length === 0) return;
+    // Re-use the same card-building logic as loadServerLifecycleView but skip the
+    // auto-select step so intervals are not disturbed.
+    const activeId = state.activeProfileIdInLifecycle;
+    lifecycleProfilesList.replaceChildren(
+      ...state.profiles.map(p => {
+        const activeSrv = state.servers.find(s => s.profile_id === p.id && s.status !== "stopped");
+        const status = activeSrv ? activeSrv.status : "stopped";
+        const isRunning = !!activeSrv;
+
+        let statusCls = "gray";
+        if (status === "healthy" || status === "ready") statusCls = "green";
+        else if (status === "crashed") statusCls = "red";
+        else if (status === "starting" || status === "loading") statusCls = "yellow";
+
+        const m = state.models.find(mod => mod.id === p.model_id);
+        const modelName = m ? m.display_name : "GGUF Model";
+        const metaParts = [modelName];
+        if (isRunning && activeSrv.port) metaParts.push(`port ${activeSrv.port}`);
+        if (isRunning && activeSrv.pid)  metaParts.push(`pid ${activeSrv.pid}`);
+
+        const actionBtns = document.createElement("div");
+        actionBtns.style.cssText = "display:flex; gap:4px; margin-top:6px;";
+
+        if (isRunning) {
+          const stopBtn = h("button", {class: "btn btn-sm btn-danger", style: "font-size:0.7rem; padding:2px 8px; height:22px;"}, "Stop");
+          stopBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            stopBtn.disabled = true; stopBtn.textContent = "…";
+            try { await apiCall(`/api/servers/${activeSrv.id}/stop`, "POST"); await loadData(); loadServerLifecycleView(); }
+            catch (err) { alert(err.message); }
+          });
+          const restartBtn = h("button", {class: "btn btn-sm btn-accent", style: "font-size:0.7rem; padding:2px 8px; height:22px;"}, "Restart");
+          restartBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            restartBtn.disabled = true; restartBtn.textContent = "…";
+            try { await apiCall(`/api/servers/${activeSrv.id}/restart`, "POST"); await loadData(); loadServerLifecycleView(); }
+            catch (err) { alert(err.message); }
+          });
+          actionBtns.append(stopBtn, restartBtn);
+        } else {
+          const startBtn = h("button", {class: "btn btn-sm btn-primary", style: "font-size:0.7rem; padding:2px 8px; height:22px;"}, "Start");
+          startBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            startBtn.disabled = true; startBtn.textContent = "…";
+            try {
+              await apiCall(`/api/profiles/${p.id}/start`, "POST");
+              await loadData();
+              state.activeProfileIdInLifecycle = p.id;
+              loadServerLifecycleView();
+              selectProfileInLifecycle(p.id);
+            } catch (err) { alert(`Start failed: ${err.message}`); }
+          });
+          actionBtns.append(startBtn);
+        }
+
+        const card = h("div", {
+          class: `profile-item-btn ${activeId === p.id ? "active" : ""}`,
+          style: "display: flex; flex-direction: column; width: 100%; text-align: left; cursor: pointer;"
+        },
+          h("div", {style: "display:flex; justify-content:space-between; align-items:center; width:100%;"},
+            h("strong", {class: "profile-item-title"}, p.name),
+            h("span", {class: `status-pill ${statusCls}`, style: "font-size:0.65rem; padding: 2px 6px;"}, status)
+          ),
+          h("span", {class: "profile-item-meta"}, metaParts.join(" · ")),
+          actionBtns
+        );
+        card.addEventListener("click", () => selectProfileInLifecycle(p.id));
+        return card;
+      })
+    );
   }
 
   // Hook up select server by profile ID
@@ -1452,8 +1501,14 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("srv-port-val").textContent = p.port || "-";
       document.getElementById("srv-uptime-val").textContent = "Stopped";
 
-      document.getElementById("realtime-cpu").textContent = "0%";
-      document.getElementById("realtime-mem").textContent = "0.00 GB";
+      document.getElementById("realtime-cpu").textContent = "—";
+      document.getElementById("realtime-mem").textContent = "—";
+
+      // Clear inference metrics to blank (server not running)
+      ["metric-prefill-speed","metric-gen-speed","metric-active-slots",
+       "metric-inflight-reqs","metric-queued-reqs","metric-kv-ratio"].forEach(id => {
+        document.getElementById(id).textContent = "—";
+      });
 
       // Console placeholder
       document.getElementById("server-log-console").replaceChildren(
@@ -1564,6 +1619,9 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       // Reload server config silently to refresh status
       state.servers = await apiCall("/api/servers");
+      // Refresh just the sidebar cards so status pills and port/PID stay current
+      // without calling selectProfileInLifecycle (which would clear polling intervals)
+      refreshProfileSidebarCards();
       const s = state.servers.find(srv => srv.id === serverID);
       if (s) {
         const statusCls = s.status === "healthy" || s.status === "ready" ? "green" : (s.status === "crashed" ? "red" : "yellow");
@@ -1588,23 +1646,41 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("realtime-cpu").textContent = `${parseFloat(last.cpu_percent).toFixed(1)}%`;
         document.getElementById("realtime-mem").textContent = `${(last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 
-        // Update active inference metrics
-        const prefillVal = last.prompt_tokens_per_second || 0;
-        const genVal = last.generation_tokens_per_second || 0;
-        const busySlots = last.busy_slots || 0;
-        const totalSlots = last.slot_count || 0;
-        const inflight = last.requests_processing || 0;
-        const queued = last.requests_deferred || 0;
-        const obsCtx = last.ctx_size_observed || 0;
+        // Check whether this server was launched with --metrics.
+        // profile_snapshot.args is the arg list captured at launch time.
+        // When --metrics is absent the endpoint never existed, so scrapeMetrics()
+        // returns an empty map and all token/slot fields will be 0 — show "—"
+        // instead of misleading zeros.
+        const srvRecord = state.servers.find(srv => srv.id === serverID);
+        const hasMetrics = Array.isArray(srvRecord?.profile_snapshot?.args) &&
+                           srvRecord.profile_snapshot.args.includes("--metrics");
 
-        document.getElementById("metric-prefill-speed").textContent = `${prefillVal.toFixed(1)} t/s`;
-        document.getElementById("metric-gen-speed").textContent = `${genVal.toFixed(1)} t/s`;
-        document.getElementById("metric-active-slots").textContent = `${busySlots} / ${totalSlots}`;
-        document.getElementById("metric-inflight-reqs").textContent = `${inflight} Active`;
-        document.getElementById("metric-queued-reqs").textContent = `${queued} Queued`;
-        document.getElementById("metric-kv-ratio").textContent = `${obsCtx} tokens`;
+        if (hasMetrics) {
+          const prefillVal = last.prompt_tokens_per_second || 0;
+          const genVal = last.generation_tokens_per_second || 0;
+          const busySlots = last.busy_slots || 0;
+          const totalSlots = last.slot_count || 0;
+          const inflight = last.requests_processing || 0;
+          const queued = last.requests_deferred || 0;
+          const obsCtx = last.ctx_size_observed || 0;
 
-        // Update charts history
+          document.getElementById("metric-prefill-speed").textContent = `${prefillVal.toFixed(1)} t/s`;
+          document.getElementById("metric-gen-speed").textContent = `${genVal.toFixed(1)} t/s`;
+          document.getElementById("metric-active-slots").textContent = `${busySlots} / ${totalSlots}`;
+          document.getElementById("metric-inflight-reqs").textContent = `${inflight} Active`;
+          document.getElementById("metric-queued-reqs").textContent = `${queued} Queued`;
+          document.getElementById("metric-kv-ratio").textContent = `${obsCtx} tokens`;
+        } else {
+          // No --metrics endpoint — show blank placeholders
+          document.getElementById("metric-prefill-speed").textContent = "—";
+          document.getElementById("metric-gen-speed").textContent = "—";
+          document.getElementById("metric-active-slots").textContent = "—";
+          document.getElementById("metric-inflight-reqs").textContent = "—";
+          document.getElementById("metric-queued-reqs").textContent = "—";
+          document.getElementById("metric-kv-ratio").textContent = "—";
+        }
+
+        // Update charts history (CPU/RSS always available)
         state.telemetryHistory.cpu = samples.map(sa => sa.cpu_percent);
         state.telemetryHistory.mem = samples.map(sa => sa.memory_rss_bytes / 1024 / 1024 / 1024); // GB
         drawTelemetryCanvas();
@@ -1790,9 +1866,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (textNode) textNode.textContent = " Querying...";
     testBtn.disabled = true;
     testOutputBox.innerHTML = `<span class="placeholder-text">Executing request...</span>`;
-
-    const s = state.servers.find(srv => srv.id === state.activeServerId);
-    if (!s) return;
 
     const host = s.host === "0.0.0.0" || s.host === "::" ? window.location.hostname : s.host;
     const url = `http://${host}:${s.port}/completion`;
