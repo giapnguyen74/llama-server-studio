@@ -580,7 +580,6 @@
               <p style="color: var(--text-muted); font-size: 0.9rem; max-width: 460px; margin: 8px auto 0;">Select a profile from the left sidebar to manage its process lifecycle, monitor real-time resource stats, stream console logs, and run quick inference tests.</p>
             </div>
 
-
         <div id="lifecycle-details-container" style="display:none;">
           <!-- Server details grid -->
           <div class="lifecycle-layout-grid">
@@ -603,6 +602,53 @@
                 <div class="telemetry-item">
                   <span class="tel-label">Uptime</span>
                   <span class="tel-val" id="srv-uptime-val">00:00</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label">CPU Usage</span>
+                  <span class="tel-val" id="realtime-cpu">0%</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label">RSS Memory</span>
+                  <span class="tel-val text-dim" id="realtime-mem">0.00 GB</span>
+                </div>
+              </div>
+
+              <!-- Sleek sparkline chart -->
+              <div class="glass-card" style="padding: 12px 16px; margin-bottom: 16px; border: 1px solid var(--border-soft); background: rgba(0, 0, 0, 0.12);" id="sec-sparkline-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem; color: var(--text-dim); margin-bottom: 8px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">
+                  <span>Child llama-server Sparkline Telemetry (CPU / Memory)</span>
+                  <span id="sparkline-stats-label" style="font-weight: 600; color: var(--text-main);">0% CPU | 0.00 GB RAM</span>
+                </div>
+                <div style="height: 50px; position: relative;">
+                  <canvas id="chart-canvas" style="width: 100%; height: 50px; display: block;"></canvas>
+                </div>
+              </div>
+
+              <!-- Inference telemetry performance metrics bar -->
+              <div class="telemetry-bar-grid" style="margin-top: 16px; margin-bottom: 24px; background: rgba(16, 163, 127, 0.06); border: 1px solid rgba(16, 163, 127, 0.2);" id="sec-inference-performance-card">
+                <div class="telemetry-item">
+                  <span class="tel-label" style="color: var(--primary);">Prefill Speed</span>
+                  <span class="tel-val" id="metric-prefill-speed">0.0 t/s</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label" style="color: var(--primary);">Generation Speed</span>
+                  <span class="tel-val" id="metric-gen-speed">0.0 t/s</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label" style="color: var(--primary);">Active Slots</span>
+                  <span class="tel-val" id="metric-active-slots">0 / 0</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label" style="color: var(--primary);">In-Flight Requests</span>
+                  <span class="tel-val" id="metric-inflight-reqs">0 Active</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label" style="color: var(--primary);">Queued Requests</span>
+                  <span class="tel-val" id="metric-queued-reqs">0 Queued</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="tel-label" style="color: var(--primary);">KV Cache Usage</span>
+                  <span class="tel-val" id="metric-kv-ratio">0 tokens</span>
                 </div>
               </div>
 
@@ -648,35 +694,34 @@
                 <div class="card-header">
                   <h3>Quick Test Console</h3>
                 </div>
-                <div class="quick-test-body">
-                  <div class="test-row">
-                    <div class="form-group col-4">
+                <div class="card-body">
+                  <div class="quick-test-inputs">
+                    <div class="form-group">
                       <label for="test-temp">Temperature</label>
-                      <input type="number" id="test-temp" value="0.7" step="0.1">
+                      <input type="number" id="test-temp" step="0.1" min="0.0" max="2.0" value="0.7">
                     </div>
-                    <div class="form-group col-4">
+                    <div class="form-group">
                       <label for="test-tokens">Max Tokens</label>
-                      <input type="number" id="test-tokens" value="256">
+                      <input type="number" id="test-tokens" min="1" max="8192" value="128">
                     </div>
-                    <div class="form-group col-4 d-flex-align">
-                      <label class="checkbox-container">
-                        <input type="checkbox" id="test-stream" checked>
-                        <span>Stream tokens</span>
-                      </label>
+                    <div class="form-group inline-checkbox" style="margin-bottom: 0; display: flex; align-items: center; gap: 8px;">
+                      <input type="checkbox" id="test-stream" checked>
+                      <label for="test-stream" style="margin-bottom: 0;">Stream tokens</label>
                     </div>
                   </div>
-                  <div class="form-group">
+
+                  <div class="form-group" style="margin-top: 16px;">
                     <label for="test-prompt">Prompt</label>
-                    <textarea id="test-prompt" rows="3" placeholder="Explain the difference between Llama 3 and Mistral..."></textarea>
+                    <textarea id="test-prompt" rows="3" placeholder="Type inference prompt here... e.g. What is gravity?"></textarea>
                   </div>
-                  
-                  <div class="test-actions">
-                    <button class="btn btn-primary" id="btn-submit-test">
+
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px;">
+                    <button class="btn btn-primary" id="btn-test-srv">
                       <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                       Send Inference Request
                     </button>
                     <button class="btn btn-secondary" id="btn-copy-curl">
-                      <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px; height:14px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                       Copy curl
                     </button>
                   </div>
@@ -693,25 +738,6 @@
 
             <!-- Right panel: RAM charts & benchmarks comparison -->
             <div class="lifecycle-sidebar">
-              <div class="glass-card telemetry-chart-card">
-                <div class="card-header">
-                  <h3>Resource Utilization</h3>
-                </div>
-                <div class="telemetry-stat-bar">
-                  <div class="stat-col">
-                    <span class="label">CPU Usage</span>
-                    <span class="value" id="realtime-cpu">0%</span>
-                  </div>
-                  <div class="stat-col">
-                    <span class="label">RSS Memory</span>
-                    <span class="value" id="realtime-mem">0.00 GB</span>
-                  </div>
-                </div>
-                <div class="canvas-wrapper">
-                  <canvas id="chart-canvas" width="300" height="150"></canvas>
-                </div>
-              </div>
-
               <!-- Run immediate benchmark -->
               <div class="glass-card bench-card">
                 <div class="card-header">

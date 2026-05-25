@@ -148,13 +148,51 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/benchmarks", auth(s.handleListBenchmarks))
 	mux.HandleFunc("POST /api/benchmarks", auth(s.handleRunBenchmark))
 	mux.HandleFunc("DELETE /api/benchmarks/{run_id}", auth(s.handleDeleteBenchmark))
+}
 
-	// 7. Stable Profile Routing Gateway Proxy
-	mux.HandleFunc("POST /profiles/{profile_id}/v1/chat/completions", s.handleProxyRoute)
-	mux.HandleFunc("POST /profiles/{profile_id}/v1/completions", s.handleProxyRoute)
-	mux.HandleFunc("POST /profiles/{profile_id}/v1/embeddings", s.handleProxyRoute)
-	mux.HandleFunc("POST /profiles/{profile_id}/rerank", s.handleProxyRoute)
-	mux.HandleFunc("GET /profiles/{profile_id}/health", s.handleProxyRoute)
+// RegisterGatewayRoutes sets up Go 1.22+ native REST gateway proxy routes on a separate port.
+func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
+	// CORS is '*' and requests are guarded by the gateway token
+	gatewayAuth := func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// Set CORS to * for public integration
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			// If no gateway token is configured, the proxy is disabled entirely.
+			if s.cfg.GatewayToken == "" {
+				writeJSONError(w, http.StatusServiceUnavailable,
+					"Proxy gateway is disabled: no gateway_token is configured. "+
+						"Set one in the Security Gateway settings to enable the proxy endpoint.")
+				return
+			}
+
+			// Token is configured — validate the caller's token.
+			authHeader := r.Header.Get("Authorization")
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			if token == "" {
+				token = r.URL.Query().Get("token")
+			}
+			if token != s.cfg.GatewayToken {
+				writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid gateway token. Use Authorization: Bearer <gateway_token>")
+				return
+			}
+
+			h(w, r)
+		}
+	}
+
+	mux.HandleFunc("POST /profiles/{profile_id}/v1/chat/completions", gatewayAuth(s.handleProxyRoute))
+	mux.HandleFunc("POST /profiles/{profile_id}/v1/completions", gatewayAuth(s.handleProxyRoute))
+	mux.HandleFunc("POST /profiles/{profile_id}/v1/embeddings", gatewayAuth(s.handleProxyRoute))
+	mux.HandleFunc("POST /profiles/{profile_id}/rerank", gatewayAuth(s.handleProxyRoute))
+	mux.HandleFunc("GET /profiles/{profile_id}/health", gatewayAuth(s.handleProxyRoute))
 }
 
 // --- Handlers Implementation ---

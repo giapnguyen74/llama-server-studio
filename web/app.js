@@ -1432,7 +1432,9 @@ document.addEventListener("DOMContentLoaded", () => {
     lifecycleEmpty.style.display = "none";
 
     const s = state.servers.find(srv => srv.profile_id === profileID && srv.status !== "stopped");
-    document.getElementById("stable-route-url").textContent = `/profiles/${profileID}/v1/completions`;
+    const gwPort = parseInt(window.location.port || "3100") + 1;
+    const gwUrl = `${window.location.protocol}//${window.location.hostname}:${gwPort}/profiles/${profileID}/v1/completions`;
+    document.getElementById("stable-route-url").textContent = gwUrl;
 
     if (!s) {
       // Server is stopped
@@ -1586,6 +1588,22 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("realtime-cpu").textContent = `${parseFloat(last.cpu_percent).toFixed(1)}%`;
         document.getElementById("realtime-mem").textContent = `${(last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 
+        // Update active inference metrics
+        const prefillVal = last.prompt_tokens_per_second || 0;
+        const genVal = last.generation_tokens_per_second || 0;
+        const busySlots = last.busy_slots || 0;
+        const totalSlots = last.slot_count || 0;
+        const inflight = last.requests_processing || 0;
+        const queued = last.requests_deferred || 0;
+        const obsCtx = last.ctx_size_observed || 0;
+
+        document.getElementById("metric-prefill-speed").textContent = `${prefillVal.toFixed(1)} t/s`;
+        document.getElementById("metric-gen-speed").textContent = `${genVal.toFixed(1)} t/s`;
+        document.getElementById("metric-active-slots").textContent = `${busySlots} / ${totalSlots}`;
+        document.getElementById("metric-inflight-reqs").textContent = `${inflight} Active`;
+        document.getElementById("metric-queued-reqs").textContent = `${queued} Queued`;
+        document.getElementById("metric-kv-ratio").textContent = `${obsCtx} tokens`;
+
         // Update charts history
         state.telemetryHistory.cpu = samples.map(sa => sa.cpu_percent);
         state.telemetryHistory.mem = samples.map(sa => sa.memory_rss_bytes / 1024 / 1024 / 1024); // GB
@@ -1677,6 +1695,14 @@ document.addEventListener("DOMContentLoaded", () => {
   function drawTelemetryCanvas() {
     const canvas = document.getElementById("chart-canvas");
     if (!canvas) return;
+
+    // Fluidly scale the internal canvas coordinates to match CSS layout bounds crisply
+    const rect = canvas.getBoundingClientRect();
+    if (canvas.width !== rect.width || canvas.height !== rect.height) {
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+    }
+
     const ctx = canvas.getContext("2d");
     const width = canvas.width;
     const height = canvas.height;
@@ -1684,14 +1710,23 @@ document.addEventListener("DOMContentLoaded", () => {
     ctx.clearRect(0, 0, width, height);
 
     const cpuData = state.telemetryHistory.cpu;
+    const memData = state.telemetryHistory.mem;
     if (cpuData.length < 2) return;
 
-    // Dynamically retrieve active CSS custom properties for proper paper-white theme coordination
+    // Update stats text label
+    const latestCpu = cpuData[cpuData.length - 1] || 0.0;
+    const latestMem = memData[memData.length - 1] || 0.00;
+    const labelEl = document.getElementById("sparkline-stats-label");
+    if (labelEl) {
+      labelEl.textContent = `${latestCpu.toFixed(1)}% CPU | ${latestMem.toFixed(2)} GB RAM`;
+    }
+
+    // Dynamically retrieve active CSS custom properties for proper theme coordination
     const computedStyle = getComputedStyle(document.documentElement);
     const borderSoft = computedStyle.getPropertyValue("--border-soft").trim() || "#eee6d9";
     const accentPink = computedStyle.getPropertyValue("--accent-pink").trim() || "#8b5e34";
 
-    // Draw grid
+    // Draw grid lines
     ctx.strokeStyle = borderSoft;
     ctx.lineWidth = 1;
     for (let i = 20; i < width; i += 20) {
@@ -1700,7 +1735,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.lineTo(i, height);
       ctx.stroke();
     }
-    for (let i = 20; i < height; i += 20) {
+    for (let i = 10; i < height; i += 10) {
       ctx.beginPath();
       ctx.moveTo(0, i);
       ctx.lineTo(width, i);
@@ -1710,13 +1745,13 @@ document.addEventListener("DOMContentLoaded", () => {
     // Plot CPU sparkline
     ctx.beginPath();
     ctx.strokeStyle = accentPink;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2;
     
     const step = width / (cpuData.length - 1);
     for (let idx = 0; idx < cpuData.length; idx++) {
       const val = cpuData[idx]; // 0 - 100%
       const x = idx * step;
-      const y = height - ((val / 100) * (height - 10)) - 5;
+      const y = height - ((val / 100) * (height - 6)) - 3;
       
       if (idx === 0) {
         ctx.moveTo(x, y);
@@ -1756,8 +1791,17 @@ document.addEventListener("DOMContentLoaded", () => {
     testBtn.disabled = true;
     testOutputBox.innerHTML = `<span class="placeholder-text">Executing request...</span>`;
 
-    const url = `/api/servers/${state.activeServerId}/test`;
-    const payload = { prompt, temp, max_tokens: tokens, stream };
+    const s = state.servers.find(srv => srv.id === state.activeServerId);
+    if (!s) return;
+
+    const host = s.host === "0.0.0.0" || s.host === "::" ? window.location.hostname : s.host;
+    const url = `http://${host}:${s.port}/completion`;
+    const payload = {
+      prompt,
+      temperature: temp,
+      n_predict: tokens,
+      stream
+    };
 
     try {
       const response = await fetch(url, {
@@ -1964,7 +2008,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (token) {
       authHeader = `  -H "Authorization: Bearer ${token}" \\\n`;
     }
-    curlBox.textContent = `curl -X POST http://127.0.0.1:3100/profiles/${activeProfileId}/v1/chat/completions \\\n` +
+    const gwPort = parseInt(window.location.port || "3100") + 1;
+    curlBox.textContent = `curl -X POST http://${window.location.hostname || "127.0.0.1"}:${gwPort}/profiles/${activeProfileId}/v1/chat/completions \\\n` +
       authHeader +
       `  -H "Content-Type: application/json" \\\n` +
       `  -d '{\n` +

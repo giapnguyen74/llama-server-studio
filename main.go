@@ -12,11 +12,11 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-
 
 	"llama-server-studio/internal/bench"
 	"llama-server-studio/internal/config"
@@ -200,11 +200,31 @@ func main() {
 	apiServer := httpapi.NewServer(db, supervisor, benchRunner, proxyRouter, cfg, cfgPath, embedFS)
 	apiServer.RegisterRoutes(mux)
 
-	// 9. Startup Web Server Listeners
+	// 9. Startup Web Server Listeners (Main API & WebUI)
 	go func() {
 		printBanner(cfg)
+		log.Printf("Main Studio Server starting on http://%s", cfg.Listen)
 		if err := http.ListenAndServe(cfg.Listen, mux); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to bind listen address: %v", err)
+			log.Fatalf("Failed to bind main listen address: %v", err)
+		}
+	}()
+
+	// 9b. Startup API Gateway Server (Listen on main port + 1)
+	host, port, err := parseListenAddress(cfg.Listen)
+	var gatewayListen string
+	if err == nil {
+		gatewayListen = net.JoinHostPort(host, strconv.Itoa(port+1))
+	} else {
+		gatewayListen = "127.0.0.1:3101"
+	}
+
+	gatewayMux := http.NewServeMux()
+	apiServer.RegisterGatewayRoutes(gatewayMux)
+
+	go func() {
+		log.Printf("Public API Gateway Server starting on http://%s", gatewayListen)
+		if err := http.ListenAndServe(gatewayListen, gatewayMux); err != nil && err != http.ErrServerClosed {
+			log.Printf("[Gateway] Failed to bind gateway listen address %s: %v", gatewayListen, err)
 		}
 	}()
 
@@ -341,4 +361,23 @@ func computeLoopback(listen string) bool {
 		}
 	}
 	return true
+}
+
+func parseListenAddress(listen string) (string, int, error) {
+	host, portStr, err := net.SplitHostPort(listen)
+	if err != nil {
+		if strings.HasPrefix(listen, ":") {
+			port, err := strconv.Atoi(listen[1:])
+			if err != nil {
+				return "", 0, err
+			}
+			return "0.0.0.0", port, nil
+		}
+		return "", 0, err
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", 0, err
+	}
+	return host, port, nil
 }

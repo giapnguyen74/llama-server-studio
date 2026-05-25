@@ -924,7 +924,7 @@ pre, code, textarea.code-font, .terminal-body {
 
 .telemetry-bar-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
