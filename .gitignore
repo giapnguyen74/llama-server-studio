@@ -1,3 +1,5 @@
 llama-server-studio
 /.agent
 /prs
+*.pyc
+__pycache__

@@ -91,11 +91,15 @@ def main():
             kv_start = f.tell()
             key = read_string(f)
             val_type = struct.unpack("<I", f.read(4))[0]
+            value_start = f.tell()
+            
+            # Print KV pair key for easy debugging
+            # print(f"[{i}/{metadata_kv_count}] Key: {key.decode('utf-8', errors='replace')} (Type: {val_type})")
             
             # Record alignment if found
             if key == b"general.alignment" and val_type in (4, 5):
                 alignment = struct.unpack("<I", f.read(4))[0]
-                f.seek(-4, 1) # seek back so standard skip works
+                f.seek(value_start) # seek back
             
             # Check for the rope dimension key
             if key in (
@@ -124,7 +128,7 @@ def main():
                             elements.append(struct.unpack("<Q", f.read(8))[0])
                     
                     target_elements = elements
-                    f.seek(-12 - len(elements)*struct.calcsize("B" if sub_type in (0,1) else "H" if sub_type in (2,3) else "I" if sub_type in (4,5) else "Q"), 1) # seek back
+                    f.seek(value_start) # seek back cleanly!
                 else:
                     _ = skip_value(f, val_type)
             else:
