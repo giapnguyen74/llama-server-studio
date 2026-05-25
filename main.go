@@ -56,6 +56,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize configuration: %v", err)
 	}
+	log.Printf("Loaded configuration from: %s", cfgPath)
 
 	// 3. Override configs with CLI arguments
 	if *listenFlag != "" {
@@ -247,14 +248,22 @@ func main() {
 func locateLlamaServer(binDir string) string {
 	// 1. If a custom binary directory is configured, check it first
 	if binDir != "" {
-		path := filepath.Join(binDir, "llama-server")
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return path
+		candidates := []string{
+			filepath.Join(binDir, "llama-server"),
+			filepath.Join(binDir, "server"),
+		}
+		for _, path := range candidates {
+			if info, err := os.Stat(path); err == nil && !info.IsDir() {
+				return path
+			}
 		}
 	}
 
 	// 2. Look up in System PATH first
 	if path, err := exec.LookPath("llama-server"); err == nil {
+		return path
+	}
+	if path, err := exec.LookPath("server"); err == nil {
 		return path
 	}
 
@@ -264,7 +273,9 @@ func locateLlamaServer(binDir string) string {
 		"/usr/local/bin/llama-server",
 		"/opt/homebrew/bin/llama-server",
 		filepath.Join(home, "llama.cpp", "build", "bin", "llama-server"),
+		filepath.Join(home, "llama.cpp", "build", "bin", "server"),
 		filepath.Join(home, "llama.cpp", "llama-server"),
+		filepath.Join(home, "llama.cpp", "server"),
 	}
 
 	for _, path := range candidates {
