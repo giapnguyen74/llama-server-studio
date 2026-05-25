@@ -581,13 +581,14 @@
                   <th>Model</th>
                   <th>PID</th>
                   <th>Status</th>
+                  <th>CPU</th>
                   <th>Mem</th>
                   <th>Gen tok/s</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="lifecycle-list-body">
-                <tr><td colspan="7" class="loading-state">Loading profiles…</td></tr>
+                <tr><td colspan="8" class="loading-state">Loading profiles…</td></tr>
               </tbody>
             </table>
           </div>
@@ -640,6 +641,10 @@
             <div class="telemetry-item">
               <span class="tel-label">Uptime</span>
               <span class="tel-val" id="srv-uptime-val">—</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="tel-label">CPU</span>
+              <span class="tel-val" id="realtime-cpu">—</span>
             </div>
             <div class="telemetry-item">
               <span class="tel-label">RSS Mem</span>

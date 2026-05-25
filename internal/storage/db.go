@@ -176,18 +176,9 @@ func Open(dataDir string) (*DB, error) {
 	if err := db.load("servers.json", &db.servers); err != nil {
 		return nil, err
 	}
-	if err := db.load("stats.json", &db.stats); err != nil {
-		return nil, err
-	}
+	// stats are intentionally not loaded from disk — they are ephemeral
 	if err := db.load("benchmarks.json", &db.benchmarks); err != nil {
 		return nil, err
-	}
-
-	// Find max sample ID
-	for _, s := range db.stats {
-		if s.ID >= db.nextSampleID {
-			db.nextSampleID = s.ID + 1
-		}
 	}
 
 	// Sanity clean-up: if any servers are "starting", "healthy", etc. on launch, reset them to "stopped"
@@ -400,7 +391,7 @@ func (db *DB) ListServers() []Server {
 	return list
 }
 
-// --- Stats Samples CRUD ---
+// --- Stats Samples (in-memory only — never persisted to disk) ---
 
 func (db *DB) AddStatsSample(s StatsSample) error {
 	db.mu.Lock()
@@ -410,13 +401,12 @@ func (db *DB) AddStatsSample(s StatsSample) error {
 	db.nextSampleID++
 	db.stats = append(db.stats, s)
 
-	// Keep memory samples capped for performance, say last 5000 samples overall,
-	// or perform in-memory cleanup periodically.
-	if len(db.stats) > 10000 {
+	// Cap the ring buffer at 5000 samples to bound memory usage.
+	if len(db.stats) > 5000 {
 		db.stats = db.stats[len(db.stats)-5000:]
 	}
 
-	return db.save("stats.json", db.stats)
+	return nil // intentionally not saved to disk
 }
 
 func (db *DB) GetServerStats(serverID string, limit int) []StatsSample {

@@ -1483,6 +1483,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const hasMetrics = Array.isArray(srv.profile_snapshot?.args) &&
                                srv.profile_snapshot.args.includes("--metrics");
             statsCache[srv.profile_id] = {
+              cpu:    parseFloat(last.cpu_percent || 0).toFixed(1) + "%",
               mem:    (last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2) + " GB",
               genTps: hasMetrics ? (last.generation_tokens_per_second || 0).toFixed(1) + " t/s" : "—",
             };
@@ -1548,8 +1549,8 @@ document.addEventListener("DOMContentLoaded", () => {
           h("td", {class: "cell-model"}, modelLabel),
           h("td", {class: "cell-metric"}, srv ? String(srv.pid || "—") : "—"),
           h("td", {}, h("span", {class: `status-pill ${statusClass(status)}`}, status)),
-          h("td", {class: "cell-metric"}, sc.cpu  || "—"),
-          h("td", {class: "cell-metric"}, sc.mem  || "—"),
+          h("td", {class: "cell-metric"}, sc.cpu    || "—"),
+          h("td", {class: "cell-metric"}, sc.mem    || "—"),
           h("td", {class: "cell-metric"}, sc.genTps || "—"),
           h("td", {}, actions)
         );
@@ -1628,6 +1629,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("srv-pid-val").textContent      = "—";
       document.getElementById("srv-port-val").textContent     = p?.port || "—";
       document.getElementById("srv-uptime-val").textContent   = "—";
+      document.getElementById("realtime-cpu").textContent     = "—";
       document.getElementById("realtime-mem").textContent     = "—";
       BLANK_METRICS.forEach(id => { document.getElementById(id).textContent = "—"; });
 
@@ -1823,6 +1825,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const samples = await apiCall(`/api/servers/${serverID}/stats`);
       if (samples.length > 0) {
         const last = samples[samples.length - 1];
+        document.getElementById("realtime-cpu").textContent = `${parseFloat(last.cpu_percent).toFixed(1)}%`;
         document.getElementById("realtime-mem").textContent = `${(last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 
         const srvRec   = state.servers.find(s => s.id === serverID);
@@ -1848,7 +1851,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const hasM = Array.isArray(srvRec?.profile_snapshot?.args) &&
                        srvRec.profile_snapshot.args.includes("--metrics");
           statsCache[srvRec.profile_id] = {
-            cpu:    "—",
+            cpu:    `${parseFloat(last.cpu_percent).toFixed(1)}%`,
             mem:    `${(last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2)} GB`,
             genTps: hasM ? `${(last.generation_tokens_per_second || 0).toFixed(1)} t/s` : "—",
           };
