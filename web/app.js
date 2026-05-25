@@ -228,7 +228,10 @@ document.addEventListener("DOMContentLoaded", () => {
   filterArch.addEventListener("change", filterModels);
 
   btnRescan.addEventListener("click", async () => {
-    btnRescan.textContent = "⌛ Scanning Disk...";
+    const icon = btnRescan.querySelector(".btn-icon-svg");
+    if (icon) icon.classList.add("spin");
+    const textNode = [...btnRescan.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    if (textNode) textNode.textContent = " Scanning Disk...";
     btnRescan.disabled = true;
     try {
       await apiCall("/api/models/rescan", "POST");
@@ -237,7 +240,8 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       alert(`Rescan failed: ${err.message}`);
     } finally {
-      btnRescan.textContent = "🔄 Rescan Directories";
+      if (icon) icon.classList.remove("spin");
+      if (textNode) textNode.textContent = " Rescan Directories";
       btnRescan.disabled = false;
     }
   });
@@ -289,9 +293,18 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${caps}</td>
           <td>
             <div style="display:flex; gap:8px;">
-              <button class="btn btn-sm btn-primary" onclick="createProfileFromModel('${m.id}')">🛠️ Build</button>
-              <button class="btn btn-sm btn-secondary" onclick="viewModelDetails('${m.id}')">Info</button>
-              <button class="btn btn-sm btn-danger" onclick="hideModelFromCatalog('${m.id}')">Hide</button>
+              <button class="btn btn-sm btn-primary" onclick="createProfileFromModel('${m.id}')">
+                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                Build
+              </button>
+              <button class="btn btn-sm btn-secondary" onclick="viewModelDetails('${m.id}')">
+                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                Info
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="hideModelFromCatalog('${m.id}')">
+                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                Hide
+              </button>
             </div>
           </td>
         </tr>
@@ -392,7 +405,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const formInputs = [
     "profile-model", "simple-ctx", "simple-ngl", "simple-threads", 
     "simple-batch", "simple-parallel", "simple-port-policy", "simple-fixed-port",
-    "adv-args", "adv-workdir", "adv-host"
+    "adv-args", "adv-workdir", "adv-host",
+    "adv-gpu-device", "adv-gpu-split", "adv-gpu-tensor", "adv-gpu-main",
+    "adv-mem-flash", "adv-mem-mmap", "adv-mem-mlock", "adv-mem-cacheprompt",
+    "adv-cpu-numa", "adv-lora", "adv-spec-draft", "adv-log-file",
+    "adv-log-verbose", "adv-diag-perf"
   ];
   formInputs.forEach(id => {
     const el = document.getElementById(id);
@@ -463,6 +480,25 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("profile-editor-title").textContent = "New Serving Profile";
     document.getElementById("edit-profile-id").value = "";
     profileForm.reset();
+    
+    // Explicitly reset all advanced fields to prevent leaking states
+    document.getElementById("adv-gpu-device").value = "";
+    document.getElementById("adv-gpu-split").value = "";
+    document.getElementById("adv-gpu-tensor").value = "";
+    document.getElementById("adv-gpu-main").value = "";
+    document.getElementById("adv-mem-flash").value = "auto";
+    document.getElementById("adv-mem-mmap").value = "auto";
+    document.getElementById("adv-mem-mlock").checked = false;
+    document.getElementById("adv-mem-cacheprompt").checked = true;
+    document.getElementById("adv-cpu-numa").value = "";
+    document.getElementById("adv-lora").value = "";
+    document.getElementById("adv-spec-draft").value = "";
+    document.getElementById("adv-log-file").value = "";
+    document.getElementById("adv-log-verbose").checked = false;
+    document.getElementById("adv-diag-perf").checked = true;
+    document.getElementById("adv-workdir").value = "";
+    document.getElementById("adv-host").value = "127.0.0.1";
+    document.getElementById("adv-args").value = "";
     
     // Populate model options
     const modelSelect = document.getElementById("profile-model");
@@ -535,19 +571,73 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Advanced fields
-    // Filter out our parsed simple arguments for clear representation in Advanced text box
-    const simpleFlags = ["-c", "-ngl", "-t", "-b", "-np", "-m", "--model", "--host", "--port", "-p"];
+    let gpuDevice = "", gpuSplit = "", gpuTensor = "", gpuMain = "";
+    let memFlash = "auto", memMmap = "auto", memMlock = false, memCachePrompt = true;
+    let cpuNuma = "";
+    let lora = "", specDraft = "", logFile = "";
+    let logVerbose = false, diagPerf = true;
+
+    const parsedFlags = [
+      "-c", "-ngl", "-t", "-b", "-np", "-m", "--model", "--host", "--port", "-p",
+      "--device", "-sm", "-ts", "-mg", "--flash-attn", "--no-flash-attn", 
+      "--mmap", "--no-mmap", "--mlock", "--no-cache-prompt", "--numa",
+      "--lora", "--model-draft", "--log-file", "--verbose", "-v", "--log-verbose",
+      "--perf", "--no-perf"
+    ];
+
+    const flagsWithArgs = [
+      "-c", "-ngl", "-t", "-b", "-np", "-m", "--model", "--host", "--port", "-p",
+      "--device", "-sm", "-ts", "-mg", "--numa", "--lora", "--model-draft", "--log-file"
+    ];
+
     const advArr = [];
     for (let i = 0; i < args.length; i++) {
-      if (simpleFlags.includes(args[i])) {
-        // Skip flag and its value
-        if (args[i] !== "--flash-attn" && args[i] !== "--embeddings" && args[i] !== "--no-mmap" && args[i] !== "-cb") {
+      if (args[i] === "--device" && i + 1 < args.length) { gpuDevice = args[i+1]; i++; }
+      else if (args[i] === "-sm" && i + 1 < args.length) { gpuSplit = args[i+1]; i++; }
+      else if (args[i] === "-ts" && i + 1 < args.length) { gpuTensor = args[i+1]; i++; }
+      else if (args[i] === "-mg" && i + 1 < args.length) { gpuMain = args[i+1]; i++; }
+      else if (args[i] === "--flash-attn") { memFlash = "on"; }
+      else if (args[i] === "--no-flash-attn") { memFlash = "off"; }
+      else if (args[i] === "--mmap") { memMmap = "on"; }
+      else if (args[i] === "--no-mmap") { memMmap = "off"; }
+      else if (args[i] === "--mlock") { memMlock = true; }
+      else if (args[i] === "--no-cache-prompt") { memCachePrompt = false; }
+      else if (args[i] === "--numa" && i + 1 < args.length) { cpuNuma = args[i+1]; i++; }
+      else if (args[i] === "--lora" && i + 1 < args.length) { lora = args[i+1]; i++; }
+      else if (args[i] === "--model-draft" && i + 1 < args.length) { specDraft = args[i+1]; i++; }
+      else if (args[i] === "--log-file" && i + 1 < args.length) { logFile = args[i+1]; i++; }
+      else if (args[i] === "--verbose" || args[i] === "-v" || args[i] === "--log-verbose") { logVerbose = true; }
+      else if (args[i] === "--perf") { diagPerf = true; }
+      else if (args[i] === "--no-perf") { diagPerf = false; }
+      else if (parsedFlags.includes(args[i])) {
+        // Skip structured parameters
+        if (flagsWithArgs.includes(args[i])) {
           i++; // skip next element
         }
       } else {
         advArr.push(args[i]);
       }
     }
+
+    document.getElementById("adv-gpu-device").value = gpuDevice;
+    document.getElementById("adv-gpu-split").value = gpuSplit;
+    document.getElementById("adv-gpu-tensor").value = gpuTensor;
+    if (gpuMain) {
+      document.getElementById("adv-gpu-main").value = gpuMain;
+    } else {
+      document.getElementById("adv-gpu-main").value = "";
+    }
+    document.getElementById("adv-mem-flash").value = memFlash;
+    document.getElementById("adv-mem-mmap").value = memMmap;
+    document.getElementById("adv-mem-mlock").checked = memMlock;
+    document.getElementById("adv-mem-cacheprompt").checked = memCachePrompt;
+    document.getElementById("adv-cpu-numa").value = cpuNuma;
+    document.getElementById("adv-lora").value = lora;
+    document.getElementById("adv-spec-draft").value = specDraft;
+    document.getElementById("adv-log-file").value = logFile;
+    document.getElementById("adv-log-verbose").checked = logVerbose;
+    document.getElementById("adv-diag-perf").checked = diagPerf;
+
     document.getElementById("adv-args").value = advArr.length > 0 ? JSON.stringify(advArr) : "";
     document.getElementById("adv-workdir").value = p.working_dir || "";
     document.getElementById("adv-host").value = p.default_host || "127.0.0.1";
@@ -585,6 +675,55 @@ document.addEventListener("DOMContentLoaded", () => {
       builtArgs.push("--port", fixedPort);
     } else {
       builtArgs.push("--port", "[allocated-port]");
+    }
+
+    // Append structured advanced arguments
+    const gpuDevice = document.getElementById("adv-gpu-device").value.trim();
+    if (gpuDevice) builtArgs.push("--device", gpuDevice);
+
+    const gpuSplit = document.getElementById("adv-gpu-split").value;
+    if (gpuSplit) builtArgs.push("-sm", gpuSplit);
+
+    const gpuTensor = document.getElementById("adv-gpu-tensor").value.trim();
+    if (gpuTensor) builtArgs.push("-ts", gpuTensor);
+
+    const gpuMain = document.getElementById("adv-gpu-main").value.trim();
+    if (gpuMain) builtArgs.push("-mg", gpuMain);
+
+    const memFlash = document.getElementById("adv-mem-flash").value;
+    if (memFlash === "on") builtArgs.push("--flash-attn");
+    else if (memFlash === "off") builtArgs.push("--no-flash-attn");
+
+    const memMmap = document.getElementById("adv-mem-mmap").value;
+    if (memMmap === "on") builtArgs.push("--mmap");
+    else if (memMmap === "off") builtArgs.push("--no-mmap");
+
+    if (document.getElementById("adv-mem-mlock").checked) {
+      builtArgs.push("--mlock");
+    }
+
+    if (!document.getElementById("adv-mem-cacheprompt").checked) {
+      builtArgs.push("--no-cache-prompt");
+    }
+
+    const cpuNuma = document.getElementById("adv-cpu-numa").value;
+    if (cpuNuma) builtArgs.push("--numa", cpuNuma);
+
+    const lora = document.getElementById("adv-lora").value.trim();
+    if (lora) builtArgs.push("--lora", lora);
+
+    const specDraft = document.getElementById("adv-spec-draft").value.trim();
+    if (specDraft) builtArgs.push("--model-draft", specDraft);
+
+    const logFile = document.getElementById("adv-log-file").value.trim();
+    if (logFile) builtArgs.push("--log-file", logFile);
+
+    if (document.getElementById("adv-log-verbose").checked) {
+      builtArgs.push("--verbose");
+    }
+
+    if (!document.getElementById("adv-diag-perf").checked) {
+      builtArgs.push("--no-perf");
     }
 
     // Append advanced raw flags if present
@@ -858,8 +997,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // Stop click
   btnStopSrv.addEventListener("click", async () => {
     if (state.activeServerId) {
+      const icon = btnStopSrv.querySelector(".btn-icon-svg");
+      if (icon) icon.classList.add("spin");
+      const textNode = [...btnStopSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+      if (textNode) textNode.textContent = " Stopping...";
       btnStopSrv.disabled = true;
-      btnStopSrv.textContent = "⌛ Stopping...";
       try {
         await apiCall(`/api/servers/${state.activeServerId}/stop`, "POST");
         await loadData();
@@ -867,8 +1009,9 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (err) {
         alert(err.message);
       } finally {
+        if (icon) icon.classList.remove("spin");
+        if (textNode) textNode.textContent = " Stop Server";
         btnStopSrv.disabled = false;
-        btnStopSrv.textContent = "🛑 Stop Server";
       }
     }
   });
@@ -876,8 +1019,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // Restart click
   btnRestartSrv.addEventListener("click", async () => {
     if (state.activeServerId) {
+      const icon = btnRestartSrv.querySelector(".btn-icon-svg");
+      if (icon) icon.classList.add("spin");
+      const textNode = [...btnRestartSrv.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+      if (textNode) textNode.textContent = " Restarting...";
       btnRestartSrv.disabled = true;
-      btnRestartSrv.textContent = "⌛ Restarting...";
       try {
         await apiCall(`/api/servers/${state.activeServerId}/restart`, "POST");
         await loadData();
@@ -885,8 +1031,9 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (err) {
         alert(err.message);
       } finally {
+        if (icon) icon.classList.remove("spin");
+        if (textNode) textNode.textContent = " Restart Server";
         btnRestartSrv.disabled = false;
-        btnRestartSrv.textContent = "🔄 Restart Server";
       }
     }
   });
@@ -978,8 +1125,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const tokens = parseInt(document.getElementById("test-tokens").value) || 128;
     const stream = document.getElementById("test-stream").checked;
 
+    const icon = testBtn.querySelector(".btn-icon-svg");
+    if (icon) icon.classList.add("spin");
+    const textNode = [...testBtn.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    if (textNode) textNode.textContent = " Querying...";
     testBtn.disabled = true;
-    testBtn.textContent = "⌛ Querying...";
     testOutputBox.innerHTML = `<span class="placeholder-text">Executing request...</span>`;
 
     const url = `/api/servers/${state.activeServerId}/test`;
@@ -1031,8 +1181,9 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       testOutputBox.innerHTML = `<span class="err-line">Request Failed: ${err.message}</span>`;
     } finally {
+      if (icon) icon.classList.remove("spin");
+      if (textNode) textNode.textContent = " Send Inference Request";
       testBtn.disabled = false;
-      testBtn.textContent = "🚀 Send Inference Request";
     }
   });
 
@@ -1079,8 +1230,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (promptKey === "quicksort") prompt = "Write quicksort implementation in Go";
     if (promptKey === "poem") prompt = "Write a brief creative poem about a local LLM";
 
+    const icon = btnTriggerBench.querySelector(".btn-icon-svg");
+    if (icon) icon.classList.add("spin");
+    const textNode = [...btnTriggerBench.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    if (textNode) textNode.textContent = " Benchmarking...";
     btnTriggerBench.disabled = true;
-    btnTriggerBench.textContent = "⌛ Benchmarking...";
     
     try {
       alert("Triggering performance benchmark. This can take up to 2 minutes depending on parameters and hardware...");
@@ -1097,8 +1251,9 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       alert(`Benchmark execution failed: ${err.message}`);
     } finally {
+      if (icon) icon.classList.remove("spin");
+      if (textNode) textNode.textContent = " Execute Performance Run";
       btnTriggerBench.disabled = false;
-      btnTriggerBench.textContent = "📈 Execute Performance Run";
     }
   });
 
@@ -1133,7 +1288,10 @@ document.addEventListener("DOMContentLoaded", () => {
             <td><span class="status-pill ${b.status === "completed" ? "green" : "red"}">${b.status}</span></td>
             <td>${formatDate(b.started_at)}</td>
             <td>
-              <button class="btn btn-sm btn-danger" onclick="deleteBenchmarkRecord('${b.id}')">Delete</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteBenchmarkRecord('${b.id}')">
+                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                Delete
+              </button>
             </td>
           </tr>
         `;
