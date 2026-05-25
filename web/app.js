@@ -46,13 +46,11 @@ document.addEventListener("DOMContentLoaded", () => {
           activeSec.classList.add("active");
         }
 
-        // Section custom entry triggers
         if (target === "dashboard") loadDashboard();
         if (target === "models") loadModelsTable();
         if (target === "profiles") loadProfilesList();
         if (target === "servers") loadServerLifecycleView();
         if (target === "benchmarks") loadBenchmarksHistory();
-        if (target === "settings") loadSettingsView();
       });
     });
 
@@ -404,6 +402,38 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Automatically align context size with the model's native context length
+  const profileModelEl = document.getElementById("profile-model");
+  if (profileModelEl) {
+    profileModelEl.addEventListener("change", () => {
+      const modelID = profileModelEl.value;
+      if (!modelID) return;
+      const model = state.models.find(m => m.id === modelID);
+      if (model && model.context_length) {
+        const ctxSelect = document.getElementById("simple-ctx");
+        const ctxVal = model.context_length;
+        
+        let exists = false;
+        for (let i = 0; i < ctxSelect.options.length; i++) {
+          if (parseInt(ctxSelect.options[i].value) === ctxVal) {
+            exists = true;
+            break;
+          }
+        }
+        
+        if (!exists) {
+          const opt = document.createElement("option");
+          opt.value = ctxVal;
+          opt.textContent = `${ctxVal} (Model Native)`;
+          ctxSelect.appendChild(opt);
+        }
+        
+        ctxSelect.value = ctxVal;
+        updateCLIPreview();
+      }
+    });
+  }
+
   newProfileBtn.addEventListener("click", () => {
     initProfileEditor();
   });
@@ -476,7 +506,21 @@ document.addEventListener("DOMContentLoaded", () => {
       if (args[i] === "-np" && i + 1 < args.length) parallel = parseInt(args[i+1]);
     }
 
-    document.getElementById("simple-ctx").value = ctx;
+    const ctxSelect = document.getElementById("simple-ctx");
+    let exists = false;
+    for (let i = 0; i < ctxSelect.options.length; i++) {
+      if (parseInt(ctxSelect.options[i].value) === ctx) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      const opt = document.createElement("option");
+      opt.value = ctx;
+      opt.textContent = `${ctx} (Saved)`;
+      ctxSelect.appendChild(opt);
+    }
+    ctxSelect.value = ctx;
     document.getElementById("simple-ngl").value = ngl;
     document.getElementById("simple-threads").value = threads;
     document.getElementById("simple-batch").value = batch;
@@ -1110,17 +1154,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  // --- 9. SETTINGS & DIAGNOSTIC SECTION ---
-
-  const settingsForm = document.getElementById("settings-form");
-  const settingsScanHF = document.getElementById("settings-scan-hf");
-  const settingsGroupHFDirs = document.getElementById("settings-group-hf-dirs");
-  const btnRunDiag = document.getElementById("btn-run-diag");
-  const diagOutput = document.getElementById("diagnostic-report-output");
-
-  settingsScanHF.addEventListener("change", () => {
-    settingsGroupHFDirs.style.display = settingsScanHF.checked ? "block" : "none";
-  });
+  // --- 9. CONFIGURATION LOAD INIT ---
 
   async function loadSettings() {
     try {
@@ -1129,77 +1163,4 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error("Failed to load settings configuration", err);
     }
   }
-
-  function loadSettingsView() {
-    if (!state.settings) return;
-
-    document.getElementById("settings-server-bin").value = state.settings.llama_server_bin || "";
-    document.getElementById("settings-bin-dir").value = state.settings.llama_bin_dir || "";
-    document.getElementById("settings-models-dirs").value = (state.settings.models_dirs || []).join(", ");
-    
-    settingsScanHF.checked = state.settings.scan_hf_cache;
-    settingsGroupHFDirs.style.display = settingsScanHF.checked ? "block" : "none";
-    
-    document.getElementById("settings-hf-dirs").value = (state.settings.hf_cache_dirs || []).join(", ");
-    document.getElementById("settings-port-start").value = state.settings.port_range_start || 41000;
-    document.getElementById("settings-port-end").value = state.settings.port_range_end || 41999;
-  }
-
-  settingsForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-
-    const mDirs = document.getElementById("settings-models-dirs").value.split(",").map(s => s.trim()).filter(Boolean);
-    const hfDirs = document.getElementById("settings-hf-dirs").value.split(",").map(s => s.trim()).filter(Boolean);
-
-    const payload = {
-      listen: state.settings.listen || "127.0.0.1:3100",
-      llama_server_bin: document.getElementById("settings-server-bin").value.trim(),
-      llama_bin_dir: document.getElementById("settings-bin-dir").value.trim(),
-      models_dirs: mDirs,
-      scan_hf_cache: settingsScanHF.checked,
-      hf_cache_dirs: hfDirs,
-      port_range_start: parseInt(document.getElementById("settings-port-start").value) || 41000,
-      port_range_end: parseInt(document.getElementById("settings-port-end").value) || 41999,
-      admin_token: state.settings.admin_token || "",
-      allow_insecure_lan: state.settings.allow_insecure_lan || false,
-    };
-
-    try {
-      const result = await apiCall("/api/settings", "PUT", payload);
-      state.settings = result;
-      updateGlobalDiagnosticState();
-      alert("Settings configuration updated successfully!");
-    } catch (err) {
-      alert(`Update failed: ${err.message}`);
-    }
-  });
-
-  btnRunDiag.addEventListener("click", async () => {
-    btnRunDiag.disabled = true;
-    btnRunDiag.textContent = "⌛ Testing...";
-    diagOutput.innerHTML = `<div class="diag-line sys">[System] Starting diagnostic validation suite...</div>`;
-
-    try {
-      const report = await apiCall("/api/settings/validate-llama", "POST");
-      
-      let html = `<div class="diag-line sys">[System] Executable test report finished.</div>\n`;
-      html += `<div class="diag-line ${report.bin_valid ? "" : "err"}">Executable valid: ${report.bin_valid ? "YES" : "NO"}</div>\n`;
-      html += `<div class="diag-line">Absolute path: ${report.path_resolved}</div>\n`;
-      
-      if (report.version_output) {
-        html += `<div class="diag-line">Version string: ${report.version_output}</div>\n`;
-      }
-      
-      if (report.error) {
-        html += `<div class="diag-line err">Diagnostics Error: ${report.error}</div>\n`;
-      }
-      
-      diagOutput.innerHTML = html;
-    } catch (err) {
-      diagOutput.innerHTML = `<div class="diag-line err">[System] Diagnostic test crashed: ${err.message}</div>`;
-    } finally {
-      btnRunDiag.disabled = false;
-      btnRunDiag.textContent = "Run Diagnostic Tests";
-    }
-  });
 });

@@ -156,8 +156,18 @@ pre, code, textarea.code-font, .terminal-body {
   transition: var(--transition-fast);
 }
 
-.nav-btn .icon {
-  font-size: 1.1rem;
+.nav-btn .icon, .nav-btn .icon-svg {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--transition-fast);
+}
+
+.nav-btn:hover .icon-svg {
+  transform: scale(1.1);
 }
 
 .nav-btn:hover {
@@ -1200,6 +1210,37 @@ pre, code, textarea.code-font, .terminal-body {
 
 .server-lifecycle-tabs select:focus {
   border-color: var(--accent-cyan);
+}
+
+/* Expandable argument details details/summary styling */
+.arg-details {
+  margin-top: 6px;
+  font-size: 0.75rem;
+}
+
+.arg-details summary {
+  color: var(--accent-cyan);
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.arg-details summary:hover {
+  color: var(--accent-pink);
+  text-decoration: underline;
+}
+
+.arg-explanation {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: var(--background-muted);
+  border-left: 3px solid var(--accent-cyan);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 /* Animations */

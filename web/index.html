@@ -23,22 +23,50 @@
       </div>
       <nav class="nav-links">
         <button class="nav-btn active" data-target="dashboard">
-          <span class="icon">📊</span> Dashboard
+          <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6" y1="20" x2="6" y2="14"></line>
+          </svg>
+          Dashboard
         </button>
         <button class="nav-btn" data-target="models">
-          <span class="icon">📁</span> Model Catalog
+          <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          Model Catalog
         </button>
         <button class="nav-btn" data-target="profiles">
-          <span class="icon">🛠️</span> Profile Builder
+          <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="21" x2="4" y2="14"></line>
+            <line x1="4" y1="10" x2="4" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12" y2="3"></line>
+            <line x1="20" y1="21" x2="20" y2="16"></line>
+            <line x1="20" y1="12" x2="20" y2="3"></line>
+            <line x1="1" y1="14" x2="7" y2="14"></line>
+            <line x1="9" y1="8" x2="15" y2="8"></line>
+            <line x1="17" y1="16" x2="23" y2="16"></line>
+          </svg>
+          Profile Builder
         </button>
         <button class="nav-btn" data-target="servers">
-          <span class="icon">⚡</span> Server Lifecycle
+          <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+            <line x1="10" y1="6" x2="14" y2="6"></line>
+            <line x1="10" y1="18" x2="14" y2="18"></line>
+          </svg>
+          Server Lifecycle
         </button>
         <button class="nav-btn" data-target="benchmarks">
-          <span class="icon">📈</span> Benchmarks
-        </button>
-        <button class="nav-btn" data-target="settings">
-          <span class="icon">⚙️</span> Settings
+          <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+            <polyline points="17 6 23 6 23 12"></polyline>
+          </svg>
+          Benchmarks
         </button>
       </nav>
       <div class="sidebar-footer">
@@ -220,28 +248,68 @@
                 <div class="form-grid">
                   <div class="form-group">
                     <label for="simple-ctx">Context Length (Tokens)</label>
-                    <input type="number" id="simple-ctx" value="2048">
-                    <span class="field-hint">Outputs: -c</span>
+                    <select id="simple-ctx">
+                      <option value="512">512</option>
+                      <option value="1024">1024</option>
+                      <option value="2048" selected>2048</option>
+                      <option value="4096">4096</option>
+                      <option value="8192">8192</option>
+                      <option value="16384">16384</option>
+                      <option value="32768">32768</option>
+                      <option value="65536">65536</option>
+                      <option value="131072">131072</option>
+                    </select>
+                    <span class="field-hint">Outputs: <code>-c</code> — The prompt context size in tokens.</span>
+                    <details class="arg-details">
+                      <summary>Detailed explanation</summary>
+                      <div class="arg-explanation">
+                        Determines how much previous dialogue and text the model can read. Setting this too high significantly increases VRAM/RAM consumption, potentially leading to slow generations or out-of-memory crashes. Auto-aligns to the selected model's native limit.
+                      </div>
+                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-ngl">GPU VRAM Layers</label>
                     <input type="number" id="simple-ngl" value="0">
-                    <span class="field-hint">Outputs: -ngl (VRAM offloading)</span>
+                    <span class="field-hint">Outputs: <code>-ngl</code> — Number of layers offloaded to GPU.</span>
+                    <details class="arg-details">
+                      <summary>Detailed explanation</summary>
+                      <div class="arg-explanation">
+                        Loads model layers directly into GPU memory (VRAM). Increase this to offload more layers and speed up generation. Set to 0 to run purely on the CPU, or configure exact layer counts to fit within your graphics card's available VRAM.
+                      </div>
+                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-threads">CPU Threads</label>
                     <input type="number" id="simple-threads" value="4">
-                    <span class="field-hint">Outputs: -t (Recommended physical cores)</span>
+                    <span class="field-hint">Outputs: <code>-t</code> — CPU cores used during generation.</span>
+                    <details class="arg-details">
+                      <summary>Detailed explanation</summary>
+                      <div class="arg-explanation">
+                        Specifies how many processor threads to allocate. For optimal performance, configure this to match your system's physical (not logical/hyperthreaded) CPU cores. Setting this higher than your physical cores may degrade performance.
+                      </div>
+                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-batch">Batch Size</label>
                     <input type="number" id="simple-batch" value="512">
-                    <span class="field-hint">Outputs: -b</span>
+                    <span class="field-hint">Outputs: <code>-b</code> — Logical maximum prompt batch size.</span>
+                    <details class="arg-details">
+                      <summary>Detailed explanation</summary>
+                      <div class="arg-explanation">
+                        Logical maximum batch size for prompt processing. Higher values increase throughput during bulk prompting and benchmarks, but consume more memory during the initial context load.
+                      </div>
+                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-parallel">Parallel slots</label>
                     <input type="number" id="simple-parallel" value="1">
-                    <span class="field-hint">Outputs: -np (Concurrently served sessions)</span>
+                    <span class="field-hint">Outputs: <code>-np</code> — Number of concurrent sessions served.</span>
+                    <details class="arg-details">
+                      <summary>Detailed explanation</summary>
+                      <div class="arg-explanation">
+                        Allocates slot allocations to process multiple requests concurrently. Setting this to 1 keeps memory minimal for single-user workloads, while 2+ enables parallel sessions for team environments or benchmarks.
+                      </div>
+                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-port-policy">Port Policy</label>
@@ -477,77 +545,6 @@
         </div>
       </section>
 
-      <!-- Section: Settings -->
-      <section id="section-settings" class="content-section">
-        <header class="section-header">
-          <h2>Settings & Diagnostics</h2>
-          <p>Adjust system file folders path and execute executable validation reports.</p>
-        </header>
-
-        <div class="settings-grid">
-          <!-- CLI Paths card -->
-          <div class="glass-card">
-            <div class="card-header">
-              <h3>System Paths</h3>
-            </div>
-            <div class="card-body">
-              <form id="settings-form">
-                <div class="form-group">
-                  <label for="settings-server-bin">llama-server Binary Path</label>
-                  <input type="text" id="settings-server-bin" placeholder="e.g. /usr/local/bin/llama-server">
-                  <span class="field-hint">Location of the llama.cpp server compiled binary file.</span>
-                </div>
-                <div class="form-group">
-                  <label for="settings-bin-dir">llama.cpp Build Bin Directory (Optional)</label>
-                  <input type="text" id="settings-bin-dir" placeholder="e.g. /opt/llama.cpp/build/bin">
-                </div>
-                <div class="form-group">
-                  <label for="settings-models-dirs">Model Scan Directories (Comma Separated)</label>
-                  <textarea id="settings-models-dirs" rows="2" placeholder="e.g. /Users/username/models, /opt/llm/models"></textarea>
-                </div>
-                
-                <div class="form-group">
-                  <label class="checkbox-container">
-                    <input type="checkbox" id="settings-scan-hf">
-                    <span>Scan Hugging Face Hub cache directories</span>
-                  </label>
-                </div>
-
-                <div class="form-group" id="settings-group-hf-dirs">
-                  <label for="settings-hf-dirs">HF Cache Directories (Comma Separated)</label>
-                  <textarea id="settings-hf-dirs" rows="2" placeholder="e.g. /Users/username/.cache/huggingface/hub"></textarea>
-                </div>
-
-                <div class="form-row">
-                  <div class="form-group col-6">
-                    <label for="settings-port-start">Port Range Start</label>
-                    <input type="number" id="settings-port-start" value="41000">
-                  </div>
-                  <div class="form-group col-6">
-                    <label for="settings-port-end">Port Range End</label>
-                    <input type="number" id="settings-port-end" value="41999">
-                  </div>
-                </div>
-
-                <button type="submit" class="btn btn-primary">💾 Save Configuration</button>
-              </form>
-            </div>
-          </div>
-
-          <!-- Diagnostics card -->
-          <div class="glass-card">
-            <div class="card-header">
-              <h3>Diagnostic Verification Report</h3>
-              <button class="btn btn-sm btn-accent" id="btn-run-diag">Run Diagnostic Tests</button>
-            </div>
-            <div class="card-body">
-              <div class="diagnostic-box" id="diagnostic-report-output">
-                <div class="diag-line">[Diag] Idle. Click 'Run Diagnostic Tests' to execute.</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
 
     </main>
   </div>

@@ -180,27 +180,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
-	var newCfg config.Config
-	if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	// Update local values
-	s.cfg.LlamaServerBin = newCfg.LlamaServerBin
-	s.cfg.LlamaBinDir = newCfg.LlamaBinDir
-	s.cfg.ModelsDirs = newCfg.ModelsDirs
-	s.cfg.ScanHFCache = newCfg.ScanHFCache
-	s.cfg.HFCacheDirs = newCfg.HFCacheDirs
-	s.cfg.PortRangeStart = newCfg.PortRangeStart
-	s.cfg.PortRangeEnd = newCfg.PortRangeEnd
-
-	if err := config.SaveConfig(s.cfg, s.cfgPath); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, s.cfg)
+	writeJSONError(w, http.StatusForbidden, "Settings updates are disabled in WebUI for security. Please edit config.json directly on disk.")
 }
 
 func (s *Server) handleValidateLlama(w http.ResponseWriter, r *http.Request) {
