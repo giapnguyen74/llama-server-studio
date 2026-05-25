@@ -49,7 +49,7 @@ func main() {
 	cfgPath := *configFlag
 	if cfgPath == "" {
 		home, _ := os.UserHomeDir()
-		cfgPath = filepath.Join(home, ".config", "llama-server-studio", "config.json")
+		cfgPath = filepath.Join(home, ".llama-server-studio", "config.json")
 	}
 
 	cfg, err := config.LoadConfig(cfgPath)

@@ -51,7 +51,7 @@ func DefaultConfig() *Config {
 		PortRangeEnd:     41999,
 		AdminToken:       "",
 		AllowInsecureLAN: false,
-		DataDir:          filepath.Join(home, ".local", "share", "llama-server-studio"),
+		DataDir:          filepath.Join(home, ".llama-server-studio"),
 		GatewayToken:     "",
 		AllowedOrigins:   []string{},
 	}
@@ -62,7 +62,7 @@ func LoadConfig(path string) (*Config, error) {
 	cfg := DefaultConfig()
 	if path == "" {
 		home, _ := os.UserHomeDir()
-		path = filepath.Join(home, ".config", "llama-server-studio", "config.json")
+		path = filepath.Join(home, ".llama-server-studio", "config.json")
 	}
 
 	data, err := os.ReadFile(path)
@@ -86,7 +86,7 @@ func LoadConfig(path string) (*Config, error) {
 func SaveConfig(cfg *Config, path string) error {
 	if path == "" {
 		home, _ := os.UserHomeDir()
-		path = filepath.Join(home, ".config", "llama-server-studio", "config.json")
+		path = filepath.Join(home, ".llama-server-studio", "config.json")
 	}
 
 	// Create directory with 0700 — owner-only access

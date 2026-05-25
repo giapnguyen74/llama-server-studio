@@ -231,13 +231,13 @@ llama-server-studio \
 Default:
 
 ```text
-~/.config/llama-server-studio/config.yaml
+~/.llama-server-studio/config.json
 ```
 
 Override:
 
 ```bash
-llama-server-studio --config /path/to/config.yaml
+llama-server-studio --config /path/to/config.json
 ```
 
 ### 8.2 Data Directory
@@ -245,7 +245,7 @@ llama-server-studio --config /path/to/config.yaml
 Default:
 
 ```text
-~/.local/share/llama-server-studio
+~/.llama-server-studio
 ```
 
 Override:
@@ -257,15 +257,13 @@ llama-server-studio --data-dir /path/to/data
 ### 8.3 Suggested Directory Layout
 
 ```text
-~/.local/share/llama-server-studio/
+~/.llama-server-studio/
   studio.db
   logs/
     server-{server_id}.log
   exports/
     profile-{profile_id}.json
     profile-{profile_id}.sh
-  benchmarks/
-    benchmark-{run_id}.json
 ```
 
 ### 8.4 Example Config

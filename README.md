@@ -60,8 +60,8 @@ You can customize the Studio directly using CLI options on startup:
 | Option | Description | Default |
 | --- | --- | --- |
 | `--listen` | Studio bind address and port | `127.0.0.1:3100` |
-| `--config` | Custom path to config.json file | `~/.config/llama-server-studio/config.json` |
-| `--data-dir` | Folder for saving logs, exports, database | `~/.local/share/llama-server-studio/` |
+| `--config` | Custom path to config.json file | `~/.llama-server-studio/config.json` |
+| `--data-dir` | Folder for saving logs, exports, database | `~/.llama-server-studio/` |
 | `--llama-server-bin` | Direct absolute path to llama-server binary | *Auto-detected* |
 | `--models-dir` | Model scan directory path (can repeat or separate by comma) | `~/models` |
 | `--scan-hf-cache` | Scan local Hugging Face Hub cache directories | `true` |
