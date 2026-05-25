@@ -645,6 +645,16 @@ document.addEventListener("DOMContentLoaded", () => {
   function loadModelsTable() {
     populateModelDropdownFilters();
     filterModels();
+    
+    // Warn if Hugging Face token is not set in env variables
+    const warningBanner = document.getElementById("hf-token-warning");
+    if (warningBanner) {
+      if (state.settings && state.settings.hf_token_configured === false) {
+        warningBanner.style.display = "flex";
+      } else {
+        warningBanner.style.display = "none";
+      }
+    }
   }
 
   function filterModels() {

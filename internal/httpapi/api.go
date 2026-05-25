@@ -251,6 +251,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		// Credential status only — never the actual value or hash.
 		"gateway_token_set": s.cfg.HasGatewayToken(),
 		"admin_cred_set":    s.cfg.HasAdminCredential(),
+		"hf_token_configured": os.Getenv("HF_TOKEN") != "" || os.Getenv("HF_API_TOKEN") != "",
 	})
 }
 

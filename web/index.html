@@ -174,6 +174,12 @@
           <p class="field-hint" style="margin-bottom: 16px;">
             Directly download any public GGUF file from Hugging Face into your primary models folder. Use format: <code>repo_id:quantization</code> (e.g. <code>HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4_K_M</code>).
           </p>
+
+          <!-- Warning banner for missing HF_TOKEN -->
+          <div id="hf-token-warning" style="margin-bottom: 16px; padding: 10px 14px; display: none; gap: 8px; align-items: center; background: rgba(234, 179, 8, 0.1); border: 1px solid rgba(234, 179, 8, 0.2); border-radius: 6px; font-size: 0.85rem; color: #fbbf24;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
+            <span><strong>Warning:</strong> <code>HF_TOKEN</code> is not set in your environment. Anonymous downloads are subject to rate limiting and may fail or be slower.</span>
+          </div>
           
           <div style="display: flex; gap: 12px; align-items: center;">
             <input type="text" id="hf-download-input" placeholder="e.g. HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4_K_M" style="flex: 1; padding: 10px 14px; font-family: inherit; font-size: 0.9rem;">
