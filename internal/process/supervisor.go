@@ -133,7 +133,7 @@ func (s *Supervisor) StartServer(profileID string, configBinPath string, portRan
 	// 7. Create unique server ID and file logs
 	serverID := fmt.Sprintf("srv_%d", time.Now().UnixNano())
 	logPath := s.db.GetLogFilePath(serverID)
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return "", fmt.Errorf("failed to create log file: %w", err)
 	}

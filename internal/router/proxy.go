@@ -65,19 +65,27 @@ func NewRouter(db *storage.DB, s *process.Supervisor, cfg *config.Config) *Route
 func (rt *Router) ProxyRequest(w http.ResponseWriter, r *http.Request, profileID string) {
 	startTime := time.Now()
 
-	// 1. Verify Gateway Token Security if configured
-	if rt.cfg.GatewayToken != "" {
-		authHeader := r.Header.Get("Authorization")
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token == "" {
-			token = r.URL.Query().Get("token")
-		}
-		
-		if token != rt.cfg.GatewayToken {
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: Invalid gateway token. Please specify Authorization: Bearer sk-xyz")
-			return
-		}
+	// 1. Gateway Token Security
+	// If no gateway token is configured, the proxy is disabled entirely.
+	// Set a gateway token in Security Settings to enable the proxy.
+	if rt.cfg.GatewayToken == "" {
+		writeJSONError(w, http.StatusServiceUnavailable,
+			"Proxy gateway is disabled: no gateway_token is configured. "+
+				"Set one in the Security Gateway settings to enable the proxy endpoint.")
+		return
 	}
+
+	// Token is configured — validate the caller's token.
+	authHeader := r.Header.Get("Authorization")
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == "" {
+		token = r.URL.Query().Get("token")
+	}
+	if token != rt.cfg.GatewayToken {
+		writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid gateway token. Use Authorization: Bearer <gateway_token>")
+		return
+	}
+
 
 	// 2. Validate profile
 	p, ok := rt.db.GetProfile(profileID)

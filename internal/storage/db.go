@@ -149,10 +149,10 @@ type DB struct {
 // Open initializes and loads the JSON database from dataDir.
 func Open(dataDir string) (*DB, error) {
 	// Ensure directories exist
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(dataDir, "logs"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataDir, "logs"), 0700); err != nil {
 		return nil, err
 	}
 
@@ -231,7 +231,7 @@ func (db *DB) save(filename string, src interface{}) error {
 		return err
 	}
 
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return err
 	}
 

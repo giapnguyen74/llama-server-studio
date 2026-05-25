@@ -20,12 +20,23 @@ type Config struct {
 	AllowInsecureLAN bool     `json:"allow_insecure_lan"`
 	DataDir          string   `json:"data_dir"`
 	GatewayToken     string   `json:"gateway_token"`
+	// AllowedOrigins lists explicit HTTP Origins permitted for CORS. Empty = deny all cross-origin.
+	AllowedOrigins []string `json:"allowed_origins"`
+
+	// unexported: computed at startup, not serialised
+	bindIsLoopback bool
 }
+
+// BindIsLoopback returns true when the listen address resolves to a loopback interface.
+func (c *Config) BindIsLoopback() bool { return c.bindIsLoopback }
+
+// SetBindIsLoopback stores the result of the startup loopback computation.
+func (c *Config) SetBindIsLoopback(v bool) { c.bindIsLoopback = v }
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
-	
+
 	// Default HF cache dir
 	hfCache := filepath.Join(home, ".cache", "huggingface", "hub")
 
@@ -41,6 +52,8 @@ func DefaultConfig() *Config {
 		AdminToken:       "",
 		AllowInsecureLAN: false,
 		DataDir:          filepath.Join(home, ".local", "share", "llama-server-studio"),
+		GatewayToken:     "",
+		AllowedOrigins:   []string{},
 	}
 }
 
@@ -55,7 +68,7 @@ func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Save default config
+			// Save default config with restricted permissions
 			_ = SaveConfig(cfg, path)
 			return cfg, nil
 		}
@@ -69,16 +82,16 @@ func LoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// SaveConfig saves the configuration to the specified path.
+// SaveConfig saves the configuration to the specified path with restricted permissions (0600).
 func SaveConfig(cfg *Config, path string) error {
 	if path == "" {
 		home, _ := os.UserHomeDir()
 		path = filepath.Join(home, ".config", "llama-server-studio", "config.json")
 	}
 
-	// Create directory if it doesn't exist
+	// Create directory with 0700 — owner-only access
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 
@@ -87,5 +100,7 @@ func SaveConfig(cfg *Config, path string) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	// Write with 0600 — owner read/write only
+	return os.WriteFile(path, data, 0600)
 }
+

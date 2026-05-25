@@ -1,6 +1,26 @@
 /* Llama Server Studio - Main Frontend Application Logic */
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Safe DOM builder — use instead of innerHTML for any user/server-supplied data.
+  // All string children are appended via createTextNode, so HTML is never parsed.
+  // Inline event handlers (on*) are silently dropped; use addEventListener instead.
+  // href/src values are checked against an allowlist of safe schemes.
+  function h(tag, attrs, ...children) {
+    const el = document.createElement(tag);
+    if (attrs) {
+      for (const [k, v] of Object.entries(attrs)) {
+        if (k.startsWith("on")) continue;
+        if ((k === "href" || k === "src") && !/^(https?:|mailto:|\/)/i.test(String(v))) continue;
+        el.setAttribute(k, String(v));
+      }
+    }
+    for (const c of children) {
+      if (c == null) continue;
+      el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    }
+    return el;
+  }
+
   // Global State
   const state = {
     models: [],
@@ -24,6 +44,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initial Boot
   initNavigation();
+
+  // Delegated listener for model-table data-action buttons — eliminates onclick="fn('${id}')" injection
+  document.body.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const id = btn.dataset.modelId;
+    if (!id) return;
+    switch (btn.dataset.action) {
+      case "build": window.createProfileFromModel(id); break;
+      case "info":  window.viewModelDetails(id); break;
+      case "hide":  window.hideModelFromCatalog(id); break;
+    }
+  });
+
   loadSettings();
   loadData();
   startGlobalPolling();
@@ -60,9 +94,13 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function showModal(title, htmlContent) {
+  function showModal(title, content) {
     modalTitle.textContent = title;
-    modalContent.innerHTML = htmlContent;
+    if (content instanceof Node) {
+      modalContent.replaceChildren(content);
+    } else {
+      modalContent.textContent = String(content ?? "");
+    }
     modal.style.display = "flex";
   }
 
@@ -164,22 +202,30 @@ document.addEventListener("DOMContentLoaded", () => {
       serversList.innerHTML = `<div class="empty-state">No servers currently active. Go to Profile Builder to start one!</div>`;
     } else {
       const allDisplay = [...active, ...crashed];
-      serversList.innerHTML = allDisplay.map(srv => {
-        const prof = state.profiles.find(p => p.id === srv.profile_id);
-        const name = prof ? prof.name : "Unknown Profile";
-        const statusClass = srv.status === "healthy" ? "green" : (srv.status === "crashed" ? "red" : "yellow");
-        return `
-          <div class="stat-card" style="border: 1px solid rgba(255,255,255,0.05); margin-bottom: 8px; cursor: pointer;" onclick="document.querySelector('[data-target=servers]').click(); setTimeout(() => selectServerInLifecycle('${srv.id}'), 100);">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <div>
-                <strong style="display:block; font-size:0.95rem;">${name}</strong>
-                <span style="font-size:0.75rem; color:var(--text-dim);">PID: ${srv.pid} | Port: ${srv.port}</span>
-              </div>
-              <span class="status-pill ${statusClass}">${srv.status}</span>
-            </div>
-          </div>
-        `;
-      }).join("");
+      serversList.replaceChildren(
+        ...allDisplay.map(srv => {
+          const prof = state.profiles.find(p => p.id === srv.profile_id);
+          const name = prof ? prof.name : "Unknown Profile";
+          const statusClass = srv.status === "healthy" ? "green" : (srv.status === "crashed" ? "red" : "yellow");
+          const card = h("div", {
+            class: "stat-card",
+            style: "border: 1px solid rgba(255,255,255,0.05); margin-bottom: 8px; cursor: pointer;"
+          },
+            h("div", {style: "display:flex; justify-content:space-between; align-items:center;"},
+              h("div", {},
+                h("strong", {style: "display:block; font-size:0.95rem;"}, name),
+                h("span",   {style: "font-size:0.75rem; color:var(--text-dim);"}, `PID: ${srv.pid} | Port: ${srv.port}`)
+              ),
+              h("span", {class: `status-pill ${statusClass}`}, srv.status)
+            )
+          );
+          card.addEventListener("click", () => {
+            document.querySelector("[data-target=servers]").click();
+            setTimeout(() => selectServerInLifecycle(srv.id), 100);
+          });
+          return card;
+        })
+      );
     }
 
     // Render recent benchmarks
@@ -195,20 +241,20 @@ document.addEventListener("DOMContentLoaded", () => {
       if (completed.length === 0) {
         dashBenchList.innerHTML = `<div class="empty-state">No benchmarks completed yet. Go to Server Lifecycle to trigger one!</div>`;
       } else {
-        dashBenchList.innerHTML = completed.map(b => {
-          const prof = state.profiles.find(p => p.id === b.profile_id);
-          const name = prof ? prof.name : "Profile";
-          const speed = b.result && b.result.avg_tokens_per_sec ? parseFloat(b.result.avg_tokens_per_sec).toFixed(2) : "0";
-          return `
-            <div style="padding:12px; border-bottom: 1px solid rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center;">
-              <div>
-                <strong style="display:block; font-size:0.9rem;">${name}</strong>
-                <span style="font-size:0.7rem; color:var(--text-dim);">${formatDate(b.started_at)}</span>
-              </div>
-              <span style="font-size:1.1rem; font-weight:800; color:var(--accent-pink);">${speed} T/s</span>
-            </div>
-          `;
-        }).join("");
+        dashBenchList.replaceChildren(
+          ...completed.map(b => {
+            const prof = state.profiles.find(p => p.id === b.profile_id);
+            const name = prof ? prof.name : "Profile";
+            const speed = b.result && b.result.avg_tokens_per_sec ? parseFloat(b.result.avg_tokens_per_sec).toFixed(2) : "0";
+            return h("div", {style: "padding:12px; border-bottom: 1px solid rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center;"},
+              h("div", {},
+                h("strong", {style: "display:block; font-size:0.9rem;"}, name),
+                h("span",   {style: "font-size:0.7rem; color:var(--text-dim);"}, formatDate(b.started_at))
+              ),
+              h("span", {style: "font-size:1.1rem; font-weight:800; color:var(--accent-pink);"}, `${speed} T/s`)
+            );
+          })
+        );
       }
     } catch {
       dashBenchList.innerHTML = `<div class="empty-state">Failed to load benchmarks.</div>`;
@@ -251,8 +297,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const quants = [...new Set(state.models.map(m => m.quantization).filter(Boolean))];
     const archs = [...new Set(state.models.map(m => m.architecture).filter(Boolean))];
 
-    filterQuant.innerHTML = '<option value="">All Quantizations</option>' + quants.map(q => `<option value="${q}">${q}</option>`).join("");
-    filterArch.innerHTML = '<option value="">All Architectures</option>' + archs.map(a => `<option value="${a}">${a}</option>`).join("");
+    filterQuant.replaceChildren(
+      h("option", {value: ""}, "All Quantizations"),
+      ...quants.map(q => h("option", {value: q}, q))
+    );
+    filterArch.replaceChildren(
+      h("option", {value: ""}, "All Architectures"),
+      ...archs.map(a => h("option", {value: a}, a))
+    );
   }
 
   function loadModelsTable() {
@@ -281,67 +333,91 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    tbody.innerHTML = filtered.map(m => {
-      const caps = m.capabilities.map(c => `<span class="status-pill purple">${c}</span>`).join(" ");
-      return `
-        <tr>
-          <td><strong style="color:var(--text-primary); cursor:pointer;" onclick="viewModelDetails('${m.id}')">${m.display_name}</strong></td>
-          <td><span style="font-size:0.8rem; color:var(--text-muted);">${m.source}</span></td>
-          <td><span class="status-pill yellow">${m.quantization || "Unknown"}</span></td>
-          <td>${formatBytes(m.size_bytes)}</td>
-          <td><code style="color:var(--accent-cyan); font-size:0.8rem;">${m.architecture || "Unknown"}</code></td>
-          <td>${m.context_length || 2048}</td>
-          <td>${caps}</td>
-          <td>
-            <div style="display:flex; gap:8px;">
-              <button class="btn btn-sm btn-primary" onclick="createProfileFromModel('${m.id}')">
-                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                Build
-              </button>
-              <button class="btn btn-sm btn-secondary" onclick="viewModelDetails('${m.id}')">
-                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                Info
-              </button>
-              <button class="btn btn-sm btn-danger" onclick="hideModelFromCatalog('${m.id}')">
-                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-                Hide
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join("");
+    // Helper: create a model-action button with a static SVG icon.
+    // Only our own markup goes into innerHTML here — no user/server data.
+    function modelBtn(cssClass, action, modelId, svgPath, label) {
+      const btn = document.createElement("button");
+      btn.className = cssClass;
+      btn.dataset.action = action;
+      btn.dataset.modelId = modelId;
+      btn.innerHTML = `<svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;">${svgPath}</svg>`;
+      btn.append(document.createTextNode(" " + label));
+      return btn;
+    }
+    const SVG_BUILD = `<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>`;
+    const SVG_INFO = `<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>`;
+    const SVG_HIDE = `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>`;
+
+    tbody.replaceChildren(
+      ...filtered.map(m => {
+        const capsCell = document.createElement("td");
+        m.capabilities.forEach(c => {
+          capsCell.append(h("span", {class: "status-pill purple"}, c), " ");
+        });
+
+        const actionsDiv = h("div", {style: "display:flex; gap:8px;"},
+          modelBtn("btn btn-sm btn-primary",   "build", m.id, SVG_BUILD, "Build"),
+          modelBtn("btn btn-sm btn-secondary", "info",  m.id, SVG_INFO,  "Info"),
+          modelBtn("btn btn-sm btn-danger",    "hide",  m.id, SVG_HIDE,  "Hide")
+        );
+
+        const nameStrong = h("strong", {style: "color:var(--text-primary); cursor:pointer;",
+          "data-action": "info", "data-model-id": m.id}, m.display_name);
+
+        return h("tr", {},
+          h("td", {}, nameStrong),
+          h("td", {}, h("span", {style: "font-size:0.8rem; color:var(--text-muted);"}, m.source)),
+          h("td", {}, h("span", {class: "status-pill yellow"}, m.quantization || "Unknown")),
+          h("td", {}, formatBytes(m.size_bytes)),
+          h("td", {}, h("code", {style: "color:var(--accent-cyan); font-size:0.8rem;"}, m.architecture || "Unknown")),
+          h("td", {}, String(m.context_length || 2048)),
+          capsCell,
+          h("td", {}, actionsDiv)
+        );
+      })
+    );
   }
 
   window.viewModelDetails = function(modelID) {
     const m = state.models.find(mod => mod.id === modelID);
     if (!m) return;
-    
-    // Build metadata rows
-    let rows = `
-      <div class="metadata-grid">
-        <div class="meta-row"><span class="lbl">File Name</span><span class="val">${m.display_name}</span></div>
-        <div class="meta-row"><span class="lbl">Source</span><span class="val">${m.source}</span></div>
-        <div class="meta-row"><span class="lbl">Size</span><span class="val">${formatBytes(m.size_bytes)}</span></div>
-        <div class="meta-row"><span class="lbl">Mod Time</span><span class="val">${formatDate(m.modified_at)}</span></div>
-        <div class="meta-row"><span class="lbl">Architecture</span><span class="val">${m.architecture || "Unknown"}</span></div>
-        <div class="meta-row"><span class="lbl">Quantization</span><span class="val">${m.quantization || "Unknown"}</span></div>
-        <div class="meta-row"><span class="lbl">Context Window</span><span class="val">${m.context_length} tokens</span></div>
-        <div class="meta-row"><span class="lbl">Tokenizer model</span><span class="val">${m.tokenizer_model || "GGUF Native"}</span></div>
-      </div>
-      <div class="meta-row" style="margin-top:16px;"><span class="lbl">Absolute Path</span><code class="val" style="background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; font-size:0.75rem;">${m.path}</code></div>
-    `;
 
-    if (m.chat_template) {
-      rows += `
-        <div class="meta-row" style="margin-top:16px;">
-          <span class="lbl">Chat Template</span>
-          <pre style="background:rgba(0,0,0,0.5); padding:8px; border-radius:4px; max-height:120px; overflow-y:auto; font-size:0.7rem; color:var(--text-muted);">${escapeHtml(m.chat_template)}</pre>
-        </div>
-      `;
+    function metaRow(label, ...valueChildren) {
+      return h("div", {class: "meta-row"},
+        h("span", {class: "lbl"}, label),
+        h("span", {class: "val"}, ...valueChildren)
+      );
     }
 
-    showModal("Model Details & Header Metadata", rows);
+    const frag = document.createDocumentFragment();
+    frag.append(
+      h("div", {class: "metadata-grid"},
+        metaRow("File Name",       m.display_name),
+        metaRow("Source",          m.source),
+        metaRow("Size",            formatBytes(m.size_bytes)),
+        metaRow("Mod Time",        formatDate(m.modified_at)),
+        metaRow("Architecture",    m.architecture || "Unknown"),
+        metaRow("Quantization",    m.quantization || "Unknown"),
+        metaRow("Context Window",  `${m.context_length} tokens`),
+        metaRow("Tokenizer model", m.tokenizer_model || "GGUF Native")
+      ),
+      h("div", {class: "meta-row", style: "margin-top:16px;"},
+        h("span", {class: "lbl"}, "Absolute Path"),
+        h("code", {class: "val", style: "background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; font-size:0.75rem;"}, m.path)
+      )
+    );
+
+    if (m.chat_template) {
+      const pre = document.createElement("pre");
+      pre.style.cssText = "background:rgba(0,0,0,0.5); padding:8px; border-radius:4px; max-height:120px; overflow-y:auto; font-size:0.7rem; color:var(--text-muted);";
+      pre.textContent = m.chat_template;   // textContent — no HTML parsing
+      frag.append(h("div", {class: "meta-row", style: "margin-top:16px;"},
+        h("span", {class: "lbl"}, "Chat Template"),
+        pre
+      ));
+    }
+
+    showModal("Model Details & Header Metadata", frag);
   };
 
   window.hideModelFromCatalog = async function(modelID) {
@@ -365,13 +441,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 100);
   };
 
+  // Used only in the log viewer, where escaped text is injected as terminal-line HTML.
+  // For all other dynamic content use h() or textContent instead.
   function escapeHtml(text) {
-    return text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+    return String(text ?? "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
   }
 
   // --- 5. PROFILE BUILDER SECTION ---
@@ -472,7 +547,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Watch inputs to update CLI Preview live
   const formInputs = [
-    "profile-model", "simple-ctx", "simple-ngl", "simple-threads", 
+    "profile-name", "profile-model",
+    "simple-ctx", "simple-ngl", "simple-threads", 
     "simple-batch", "simple-parallel", "simple-port-policy", "simple-fixed-port",
     "adv-args", "adv-workdir", "adv-host",
     "adv-gpu-device", "adv-gpu-split", "adv-gpu-tensor", "adv-gpu-main",
@@ -526,16 +602,18 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   function loadProfilesList() {
-    profileListContainer.innerHTML = state.profiles.map(p => {
-      const m = state.models.find(mod => mod.id === p.model_id);
-      const modelName = m ? m.display_name : "No Model Selected";
-      return `
-        <button class="profile-item-btn" id="prof-btn-${p.id}" onclick="selectProfile('${p.id}')">
-          <strong class="profile-item-title">${p.name}</strong>
-          <span class="profile-item-meta">${modelName}</span>
-        </button>
-      `;
-    }).join("");
+    profileListContainer.replaceChildren(
+      ...state.profiles.map(p => {
+        const m = state.models.find(mod => mod.id === p.model_id);
+        const modelName = m ? m.display_name : "No Model Selected";
+        const btn = h("button", {class: "profile-item-btn", id: `prof-btn-${p.id}`},
+          h("strong", {class: "profile-item-title"}, p.name),
+          h("span",   {class: "profile-item-meta"},  modelName)
+        );
+        btn.addEventListener("click", () => selectProfile(p.id));
+        return btn;
+      })
+    );
 
     if (state.profiles.length > 0) {
       // Auto select first
@@ -581,8 +659,10 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Populate model options
     const modelSelect = document.getElementById("profile-model");
-    modelSelect.innerHTML = '<option value="">Select a Model...</option>' + 
-      state.models.filter(m => !m.hidden).map(m => `<option value="${m.id}">${m.display_name}</option>`).join("");
+    modelSelect.replaceChildren(
+      h("option", {value: ""}, "Select a Model..."),
+      ...state.models.filter(m => !m.hidden).map(m => h("option", {value: m.id}, m.display_name))
+    );
     
     deleteProfileBtn.style.display = "none";
     groupFixedPort.style.display = "none";
@@ -605,8 +685,10 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("profile-desc").value = p.description || "";
 
     const modelSelect = document.getElementById("profile-model");
-    modelSelect.innerHTML = '<option value="">Select a Model...</option>' + 
-      state.models.filter(m => !m.hidden).map(m => `<option value="${m.id}">${m.display_name}</option>`).join("");
+    modelSelect.replaceChildren(
+      h("option", {value: ""}, "Select a Model..."),
+      ...state.models.filter(m => !m.hidden).map(m => h("option", {value: m.id}, m.display_name))
+    );
     modelSelect.value = p.model_id;
 
     // Parse simple settings from args
@@ -829,7 +911,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateCLIPreview() {
     const args = generateCommandArgs();
-    const executable = state.settings.llama_server_bin || "llama-server";
+    const executable = "llama-server";
     
     // Highlight elements
     const render = `${executable} \\\n` + args.map((arg, idx) => {
@@ -1113,12 +1195,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function loadServerLifecycleView() {
     // Populate select items
-    selectLifecycleSrv.innerHTML = '<option value="">Select a Running or Crashed Server...</option>' +
-      state.servers.map(s => {
+    selectLifecycleSrv.replaceChildren(
+      h("option", {value: ""}, "Select a Running or Crashed Server..."),
+      ...state.servers.map(s => {
         const p = state.profiles.find(prof => prof.id === s.profile_id);
         const name = p ? p.name : "Serving Profile";
-        return `<option value="${s.id}">${name} (PID: ${s.pid || "Stopped"} | status: ${s.status})</option>`;
-      }).join("");
+        return h("option", {value: s.id}, `${name} (PID: ${s.pid || "Stopped"} | status: ${s.status})`);
+      })
+    );
 
     if (state.activeServerId) {
       selectLifecycleSrv.value = state.activeServerId;
@@ -1410,7 +1494,7 @@ document.addEventListener("DOMContentLoaded", () => {
         testOutputBox.textContent = data.content || JSON.stringify(data, null, 2);
       }
     } catch (err) {
-      testOutputBox.innerHTML = `<span class="err-line">Request Failed: ${err.message}</span>`;
+      testOutputBox.replaceChildren(h("span", {class: "err-line"}, `Request Failed: ${err.message}`));
     } finally {
       if (icon) icon.classList.remove("spin");
       if (textNode) textNode.textContent = " Send Inference Request";
@@ -1498,35 +1582,37 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      tbody.innerHTML = state.benchmarks.map(b => {
-        const p = state.profiles.find(prof => prof.id === b.profile_id);
-        const m = state.models.find(mod => mod.id === b.model_id);
-        
-        const profName = p ? p.name : "Profile";
-        const modelName = m ? m.display_name : "GGUF Model";
-        
-        const speed = b.result && b.result.avg_tokens_per_sec ? `${parseFloat(b.result.avg_tokens_per_sec).toFixed(2)} T/s` : "-";
-        const latency = b.result && b.result.avg_latency_ms ? `${parseFloat(b.result.avg_latency_ms).toFixed(0)}ms` : "-";
+      tbody.replaceChildren(
+        ...state.benchmarks.map(b => {
+          const p = state.profiles.find(prof => prof.id === b.profile_id);
+          const m = state.models.find(mod => mod.id === b.model_id);
 
-        return `
-          <tr>
-            <td><code style="font-size:0.8rem;">${b.id.substring(6)}</code></td>
-            <td><strong>${profName}</strong></td>
-            <td><span style="font-size:0.8rem; color:var(--text-muted);">${modelName}</span></td>
-            <td><span style="font-size:0.8rem; font-style:italic;">"${b.prompt.substring(0, 30)}..."</span></td>
-            <td><strong style="color:var(--accent-pink);">${speed}</strong></td>
-            <td>${latency}</td>
-            <td><span class="status-pill ${b.status === "completed" ? "green" : "red"}">${b.status}</span></td>
-            <td>${formatDate(b.started_at)}</td>
-            <td>
-              <button class="btn btn-sm btn-danger" onclick="deleteBenchmarkRecord('${b.id}')">
-                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                Delete
-              </button>
-            </td>
-          </tr>
-        `;
-      }).join("");
+          const profName  = p ? p.name         : "Profile";
+          const modelName = m ? m.display_name  : "GGUF Model";
+          const speed     = b.result && b.result.avg_tokens_per_sec ? `${parseFloat(b.result.avg_tokens_per_sec).toFixed(2)} T/s` : "-";
+          const latency   = b.result && b.result.avg_latency_ms     ? `${parseFloat(b.result.avg_latency_ms).toFixed(0)}ms`       : "-";
+          const statusCls = b.status === "completed" ? "green" : "red";
+
+          const deleteBtn = document.createElement("button");
+          deleteBtn.className = "btn btn-sm btn-danger";
+          // Only static SVG markup — no user data
+          deleteBtn.innerHTML = `<svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+          deleteBtn.append(document.createTextNode(" Delete"));
+          deleteBtn.addEventListener("click", () => window.deleteBenchmarkRecord(b.id));
+
+          return h("tr", {},
+            h("td", {}, h("code", {style: "font-size:0.8rem;"}, b.id.substring(6))),
+            h("td", {}, h("strong", {}, profName)),
+            h("td", {}, h("span", {style: "font-size:0.8rem; color:var(--text-muted);"}, modelName)),
+            h("td", {}, h("span", {style: "font-size:0.8rem; font-style:italic;"}, `"${b.prompt.substring(0, 30)}..."`)),
+            h("td", {}, h("strong", {style: "color:var(--accent-pink);"}, speed)),
+            h("td", {}, latency),
+            h("td", {}, h("span", {class: `status-pill ${statusCls}`}, b.status)),
+            h("td", {}, formatDate(b.started_at)),
+            h("td", {}, deleteBtn)
+          );
+        })
+      );
     } catch {
       tbody.innerHTML = `<tr><td colspan="9" class="empty-state">Failed to load history metrics.</td></tr>`;
     }

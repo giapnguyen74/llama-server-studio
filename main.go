@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -79,6 +80,16 @@ func main() {
 	}
 	if *allowLANFlag != "" {
 		cfg.AllowInsecureLAN = (*allowLANFlag == "true")
+	}
+
+	// 3b. Compute loopback flag after all CLI overrides are applied
+	cfg.SetBindIsLoopback(computeLoopback(cfg.Listen))
+
+	// 3c. Security guard: non-loopback bind without admin token must be explicit
+	if !cfg.BindIsLoopback() && !cfg.AllowInsecureLAN && cfg.AdminToken == "" {
+		log.Fatalf("SECURITY ERROR: Server is configured to listen on %s (non-loopback) but no admin_token is set.\n"+
+			"  Set 'admin_token' in config.json or pass --admin-token, or pass --allow-insecure-lan=true to explicitly opt out.\n"+
+			"  Refusing to start to protect against unauthenticated remote access.", cfg.Listen)
 	}
 
 	// 4. Try auto-detecting llama-server binary in common paths if empty
@@ -246,10 +257,46 @@ func printBanner(cfg *config.Config) {
 		fmt.Println("  Binary Location : [!] NOT FOUND (Configure path via Web UI Settings)")
 	}
 	fmt.Printf("  Scan Folders    : %s\n", strings.Join(cfg.ModelsDirs, ", "))
-	
-	if cfg.Listen != "127.0.0.1:3100" && !cfg.AllowInsecureLAN && cfg.AdminToken != "" {
-		fmt.Printf("  Admin Token     : %s\n", cfg.AdminToken)
+
+	if cfg.AdminToken != "" {
+		// Print a redacted preview — never expose the full token in stdout
+		preview := cfg.AdminToken
+		if len(preview) > 8 {
+			preview = preview[:4] + "****" + preview[len(preview)-4:]
+		} else {
+			preview = "****"
+		}
+		fmt.Printf("  Admin Token     : %s (redacted)\n", preview)
+	} else if !cfg.BindIsLoopback() {
+		fmt.Println("  Admin Token     : [!] NOT SET — remote access requires a token")
 	}
 	fmt.Println(`  =========================================`)
 	fmt.Println(` `)
+}
+
+// computeLoopback returns true when every IP the host resolves to is a loopback address.
+func computeLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	// Unspecified bind (0.0.0.0 / [::]) is NOT loopback — it binds all interfaces.
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return false
+	}
+	// Explicit loopback names
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+	// Resolve hostname; all resulting IPs must be loopback
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if !ip.IsLoopback() {
+			return false
+		}
+	}
+	return true
 }

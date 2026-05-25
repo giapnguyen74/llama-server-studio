@@ -3,12 +3,15 @@ package httpapi
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/subtle"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,31 +62,46 @@ func NewServer(
 
 // RegisterRoutes sets up Go 1.22+ native REST routes.
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
-	// Authentication Middleware wrapping standard mux handlers
+	// Authentication + CORS Middleware
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			// CORS headers
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			
+			// -- CORS: restrict to allowed origins only --
+			if origin := r.Header.Get("Origin"); origin != "" {
+				if isSameOrigin(origin, s.cfg.Listen) || isAllowedOrigin(origin, s.cfg.AllowedOrigins) {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+					w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Confirm-Token")
+					w.Header().Set("Vary", "Origin")
+				} else {
+					writeJSONError(w, http.StatusForbidden, "cross-origin requests not allowed")
+					return
+				}
+			}
+
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
 				return
 			}
 
-			// Validate token if external binding is requested
-			if s.cfg.Listen != "127.0.0.1:3100" && !s.cfg.AllowInsecureLAN && s.cfg.AdminToken != "" {
-				authHeader := r.Header.Get("Authorization")
-				token := strings.TrimPrefix(authHeader, "Bearer ")
-				if token == "" {
-					token = r.URL.Query().Get("token")
+			// -- Admin token enforcement --
+			// On non-loopback binds (and not explicitly insecure-LAN opted out): always require token.
+			// On loopback: still enforce if an admin_token is configured (defence-in-depth).
+			if !s.cfg.BindIsLoopback() && !s.cfg.AllowInsecureLAN {
+				// non-loopback: token is mandatory (startup already guards empty token)
+				token := bearerToken(r)
+				if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
+					writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid admin token")
+					return
 				}
-				if token != s.cfg.AdminToken {
-					writeJSONError(w, http.StatusUnauthorized, "Unauthorized: Invalid admin token")
+			} else if s.cfg.BindIsLoopback() && s.cfg.AdminToken != "" {
+				// loopback + token configured: still enforce it
+				token := bearerToken(r)
+				if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
+					writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid admin token")
 					return
 				}
 			}
+
 			h(w, r)
 		}
 	}
@@ -186,6 +204,24 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateSecurity(w http.ResponseWriter, r *http.Request) {
+	// Extra guard: rotating the gateway token requires either the current admin token
+	// (already checked by the auth middleware) OR the existing gateway token in
+	// X-Confirm-Token. On loopback without an admin token, the confirm token is required
+	// so that pure CSRF from a browser cannot silently rotate the gateway key.
+	existingGW := s.cfg.GatewayToken
+	if existingGW != "" {
+		confirm := r.Header.Get("X-Confirm-Token")
+		adminOK := s.cfg.AdminToken != "" &&
+			subtle.ConstantTimeCompare([]byte(bearerToken(r)), []byte(s.cfg.AdminToken)) == 1
+		gwOK := subtle.ConstantTimeCompare([]byte(confirm), []byte(existingGW)) == 1
+		if !adminOK && !gwOK {
+			writeJSONError(w, http.StatusForbidden,
+				"Rotating the gateway token requires either the admin token (Authorization: Bearer ...) "+
+					"or the current gateway token in the X-Confirm-Token header")
+			return
+		}
+	}
+
 	var payload struct {
 		GatewayToken string `json:"gateway_token"`
 	}
@@ -196,12 +232,21 @@ func (s *Server) handleUpdateSecurity(w http.ResponseWriter, r *http.Request) {
 
 	s.cfg.GatewayToken = payload.GatewayToken
 
+	// If gateway token is now empty, disable the proxy
+	if s.cfg.GatewayToken == "" {
+		s.cfg.GatewayToken = ""
+	}
+
 	if err := config.SaveConfig(s.cfg, s.cfgPath); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to save security settings: %v", err))
 		return
 	}
 
-	writeJSON(w, http.StatusOK, s.cfg)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":            true,
+		"gateway_token": s.cfg.GatewayToken,
+		"proxy_enabled": s.cfg.GatewayToken != "",
+	})
 }
 
 func (s *Server) handleValidateLlama(w http.ResponseWriter, r *http.Request) {
@@ -667,3 +712,44 @@ func generateUUID() string {
 	_, _ = rand.Read(bytes)
 	return hex.EncodeToString(bytes)
 }
+
+// bearerToken extracts a Bearer token from the Authorization header or ?token= query param.
+func bearerToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimPrefix(h, "Bearer ")
+	}
+	return r.URL.Query().Get("token")
+}
+
+// isSameOrigin returns true when the Origin header matches the studio listen address.
+// Treats 127.0.0.1 / localhost / ::1 as equivalent loopback aliases.
+func isSameOrigin(origin, listen string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	listenHost, listenPort, _ := net.SplitHostPort(listen)
+	originHost := u.Hostname()
+	originPort := u.Port()
+
+	if listenPort != originPort {
+		return false
+	}
+
+	loopback := map[string]bool{"127.0.0.1": true, "::1": true, "localhost": true}
+	if loopback[listenHost] && loopback[originHost] {
+		return true
+	}
+	return listenHost == originHost
+}
+
+// isAllowedOrigin checks if the origin appears in the explicit allowlist from config.
+func isAllowedOrigin(origin string, allowed []string) bool {
+	for _, a := range allowed {
+		if strings.EqualFold(a, origin) {
+			return true
+		}
+	}
+	return false
+}
+
