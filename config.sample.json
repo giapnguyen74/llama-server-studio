@@ -13,5 +13,10 @@
   "port_range_end": 41999,
   "admin_token": "your-secure-admin-token-here",
   "allow_insecure_lan": false,
-  "data_dir": "/Users/username/.local/share/llama-server-studio"
+  "gateway_token": "your-secure-proxy-gateway-token-here",
+  "allowed_origins": [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
+  ],
+  "data_dir": "/Users/username/.llama-server-studio"
 }

@@ -34,6 +34,32 @@ document.addEventListener("DOMContentLoaded", () => {
     telemetryHistory: { cpu: [], mem: [] },
   };
 
+  // Auth Queue for requests waiting for token entry
+  const authQueue = [];
+
+  // Auth submit handler
+  document.getElementById("auth-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const tokenVal = document.getElementById("auth-token-input").value.trim();
+    if (!tokenVal) return;
+
+    localStorage.setItem("admin_token", tokenVal);
+    document.getElementById("auth-overlay").style.display = "none";
+    document.getElementById("auth-token-input").value = "";
+
+    const queue = [...authQueue];
+    authQueue.length = 0;
+
+    for (const req of queue) {
+      try {
+        const res = await apiCall(req.url, req.method, req.body);
+        req.resolve(res);
+      } catch (err) {
+        req.reject(err);
+      }
+    }
+  });
+
   // Selectors
   const navButtons = document.querySelectorAll(".nav-btn");
   const sections = document.querySelectorAll(".content-section");
@@ -228,11 +254,33 @@ document.addEventListener("DOMContentLoaded", () => {
   async function apiCall(url, method = "GET", body = null) {
     try {
       const options = { method, headers: {} };
+      const savedToken = localStorage.getItem("admin_token");
+      if (savedToken) {
+        options.headers["Authorization"] = `Bearer ${savedToken}`;
+      }
       if (body) {
         options.headers["Content-Type"] = "application/json";
         options.body = JSON.stringify(body);
       }
       const response = await fetch(url, options);
+      if (response.status === 401) {
+        localStorage.removeItem("admin_token");
+        
+        // Show auth overlay modal
+        const overlay = document.getElementById("auth-overlay");
+        overlay.style.display = "flex";
+        document.getElementById("auth-token-input").focus();
+
+        if (savedToken) {
+          document.getElementById("auth-error-msg").style.display = "block";
+        } else {
+          document.getElementById("auth-error-msg").style.display = "none";
+        }
+
+        return new Promise((resolve, reject) => {
+          authQueue.push({ url, method, body, resolve, reject });
+        });
+      }
       if (!response.ok) {
         const errorText = await response.text();
         let parsedErr;

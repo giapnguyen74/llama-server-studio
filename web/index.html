@@ -838,5 +838,26 @@
       </div>
     </div>
   </div>
+  <!-- Beautiful full-screen glassmorphic Auth Login Page Overlay -->
+  <div id="auth-overlay" class="auth-overlay" style="display: none;">
+    <div class="auth-card glass-card">
+      <div class="auth-brand">
+        <div class="auth-logo">🦙</div>
+        <h2>Llama Server Studio</h2>
+        <p>Administrative authentication required</p>
+      </div>
+      <form id="auth-form">
+        <div class="form-group" style="margin-bottom: 20px;">
+          <label for="auth-token-input" style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 0.88rem; color: var(--text-muted);">Admin Password / Access Token</label>
+          <input type="password" id="auth-token-input" required placeholder="Enter admin_token to unlock..." style="width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--surface-alt); color: var(--text-main); font-size: 0.95rem; box-sizing: border-box;">
+        </div>
+        <div class="auth-error-msg" id="auth-error-msg" style="display: none;">Invalid admin token. Please try again.</div>
+        <button type="submit" class="btn btn-primary btn-block">
+          <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right: 6px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          Unlock Studio
+        </button>
+      </form>
+    </div>
+  </div>
 </body>
 </html>
