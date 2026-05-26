@@ -2,7 +2,6 @@ package stats
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -73,7 +72,7 @@ func StartMonitor(ctx context.Context, db *storage.DB, s *process.Supervisor) {
 				metrics := scrapeMetrics(client, srv.Host, srv.Port)
 
 				// 3. Fetch slots
-				slotCount, busySlots := scrapeSlots(client, srv.Host, srv.Port)
+				slotCount, busySlots, totalPastTokens := scrapeSlots(client, srv.Host, srv.Port)
 
 				// 4. Calculate token throughput rates dynamically via differences
 				var promptRate, generationRate float64
@@ -121,10 +120,10 @@ func StartMonitor(ctx context.Context, db *storage.DB, s *process.Supervisor) {
 					generationRate = directGenRate
 				}
 
-				// Calculate observed context size
-				var ctxSizeObserved int
-				if srv.ProfileSnapshot.Args != nil {
-					// Guess or read from metrics KV cache usage ratio if provided
+				// Calculate observed context size (total active KV cache tokens)
+				ctxSizeObserved := totalPastTokens
+				if ctxSizeObserved == 0 && srv.ProfileSnapshot.Args != nil {
+					// Guess or read from metrics KV cache usage ratio if provided as a fallback
 					ratio := metrics["llamacpp:kv_cache_usage_ratio"]
 					if ratio == 0 {
 						ratio = metrics["llama_kv_cache_usage_ratio"]
@@ -220,44 +219,7 @@ func scrapeMetrics(client *http.Client, host string, port int) map[string]float6
 	return metrics
 }
 
-func scrapeSlots(client *http.Client, host string, port int) (int, int) {
-	url := fmt.Sprintf("http://%s:%d/slots", host, port)
-	
-	resp, err := client.Get(url)
-	if err != nil {
-		return 0, 0
-	}
-	defer resp.Body.Close()
-
-	var slots []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&slots); err != nil {
-		return 0, 0
-	}
-
-	slotCount := len(slots)
-	busySlots := 0
-
-	for _, slot := range slots {
-		busy := false
-		
-		stateVal, hasState := slot["state"]
-		if hasState {
-			if f, ok := stateVal.(float64); ok && f != 0 {
-				busy = true
-			}
-		}
-		if isProc, ok := slot["is_processing"].(bool); ok && isProc {
-			busy = true
-		}
-		// Fallback simple checks
-		if slot["prompt"] != nil || slot["n_predict"] != nil {
-			busy = true
-		}
-
-		if busy {
-			busySlots++
-		}
-	}
-
-	return slotCount, busySlots
+func scrapeSlots(client *http.Client, host string, port int) (int, int, int) {
+	// Slots endpoint usage disabled to prevent llama-server high CPU issues
+	return 1, 0, 0
 }

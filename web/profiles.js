@@ -109,23 +109,23 @@ export function applyPreset(name) {
     document.getElementById("simple-ngl").value = "auto";
     document.getElementById("adv-mem-flash").value = "auto";
     document.getElementById("adv-mem-cacheprompt").checked = true;
-    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots", "--jinja"]';
+    document.getElementById("adv-args").value = '["--no-ui", "--metrics", "--jinja"]';
   } else if (name === "cpu") {
     document.getElementById("simple-ngl").value = "0";
     document.getElementById("adv-gpu-device").value = "none";
     document.getElementById("adv-mem-flash").value = "off";
     document.getElementById("adv-mem-cacheprompt").checked = true;
-    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics"]';
+    document.getElementById("adv-args").value = '["--no-ui", "--metrics"]';
   } else if (name === "gpu-offload") {
     document.getElementById("simple-ngl").value = "all";
     document.getElementById("adv-mem-flash").value = "auto";
     document.getElementById("adv-mem-cacheprompt").checked = true;
-    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots"]';
+    document.getElementById("adv-args").value = '["--no-ui", "--metrics"]';
   } else if (name === "long-context") {
     document.getElementById("simple-ctx").value = "32768";
     document.getElementById("simple-parallel").value = "1";
     document.getElementById("adv-mem-cacheprompt").checked = true;
-    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics"]';
+    document.getElementById("adv-args").value = '["--no-ui", "--metrics"]';
   } else if (name === "embedding") {
     document.getElementById("adv-args").value = '["--embedding"]';
   } else if (name === "rerank") {
@@ -277,7 +277,7 @@ export function initProfileEditor() {
   document.getElementById("adv-diag-perf").checked = true;
   document.getElementById("adv-workdir").value = "";
   document.getElementById("adv-host").value = "127.0.0.1";
-  document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots", "--jinja"]';
+  document.getElementById("adv-args").value = '["--no-ui", "--metrics", "--jinja"]';
   document.getElementById("simple-routing-enabled").checked = true;
   document.getElementById("simple-routing-autostart").checked = false;
   document.getElementById("simple-routing-policy").value = "latest-ready";

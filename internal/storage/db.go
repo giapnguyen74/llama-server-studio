@@ -104,18 +104,18 @@ type StatsSample struct {
 	P50LatencyMS              float64   `json:"p50_latency_ms"`
 	P95LatencyMS              float64   `json:"p95_latency_ms"`
 	TokensPerSecond           float64   `json:"tokens_per_second"`
-	PromptTokensTotal         int64     `json:"prompt_tokens_total,omitempty"`
-	PromptSecondsTotal        float64   `json:"prompt_seconds_total,omitempty"`
-	PromptTokensPerSecond     float64   `json:"prompt_tokens_per_second,omitempty"`
-	GenerationTokensTotal     int64     `json:"generation_tokens_total,omitempty"`
-	GenerationSecondsTotal    float64   `json:"generation_seconds_total,omitempty"`
-	GenerationTokensPerSecond float64   `json:"generation_tokens_per_second,omitempty"`
-	RequestsProcessing        int       `json:"requests_processing,omitempty"`
-	RequestsDeferred          int       `json:"requests_deferred,omitempty"`
-	SlotCount                 int       `json:"slot_count,omitempty"`
-	BusySlots                 int       `json:"busy_slots,omitempty"`
-	CtxSizeObserved           int       `json:"ctx_size_observed,omitempty"`
-	GPUMemoryUsed             int64     `json:"gpu_memory_used,omitempty"`
+	PromptTokensTotal         int64     `json:"prompt_tokens_total"`
+	PromptSecondsTotal        float64   `json:"prompt_seconds_total"`
+	PromptTokensPerSecond     float64   `json:"prompt_tokens_per_second"`
+	GenerationTokensTotal     int64     `json:"generation_tokens_total"`
+	GenerationSecondsTotal    float64   `json:"generation_seconds_total"`
+	GenerationTokensPerSecond float64   `json:"generation_tokens_per_second"`
+	RequestsProcessing        int       `json:"requests_processing"`
+	RequestsDeferred          int       `json:"requests_deferred"`
+	SlotCount                 int       `json:"slot_count"`
+	BusySlots                 int       `json:"busy_slots"`
+	CtxSizeObserved           int       `json:"ctx_size_observed"`
+	GPUMemoryUsed             int64     `json:"gpu_memory_used"`
 }
 
 // BenchmarkRun holds prompt completion and throughput results.
