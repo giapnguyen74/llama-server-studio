@@ -22,8 +22,8 @@ func (s *Server) handleServeIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Index file not found in embedded FS", http.StatusNotFound)
 		return
 	}
-	// Strict Content-Security-Policy to protect against XSS exfiltration
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' *; object-src 'none';")
+	// Strict Content-Security-Policy to protect against XSS exfiltration while allowing Google Fonts
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' *; object-src 'none';")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
@@ -41,7 +41,7 @@ func (s *Server) handleServeStatic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Static asset not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' *; object-src 'none';")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' *; object-src 'none';")
 
 	contentType := "text/plain"
 	if strings.HasSuffix(filename, ".css") {
