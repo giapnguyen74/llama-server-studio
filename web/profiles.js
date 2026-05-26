@@ -1,28 +1,38 @@
 import { h, state, apiCall } from "./state.js";
 
-const profileForm = document.getElementById("profile-form");
-const deleteProfileBtn = document.getElementById("btn-delete-profile");
-const newProfileBtn = document.getElementById("btn-create-new-profile");
-const profileListContainer = document.getElementById("profiles-list-container");
-const profileListView = document.getElementById("profiles-list-view");
-const profileDetailView = document.getElementById("profiles-detail-view");
-const simplePortPolicy = document.getElementById("simple-port-policy");
-const groupFixedPort = document.getElementById("group-fixed-port");
+let profileForm = null;
+let deleteProfileBtn = null;
+let newProfileBtn = null;
+let profileListContainer = null;
+let profileListView = null;
+let profileDetailView = null;
+let simplePortPolicy = null;
+let groupFixedPort = null;
+
+export function ensureDOMElements() {
+  profileForm = profileForm || document.getElementById("profile-form");
+  deleteProfileBtn = deleteProfileBtn || document.getElementById("btn-delete-profile");
+  newProfileBtn = newProfileBtn || document.getElementById("btn-create-new-profile");
+  profileListContainer = profileListContainer || document.getElementById("profiles-list-container");
+  profileListView = profileListView || document.getElementById("profiles-list-view");
+  profileDetailView = profileDetailView || document.getElementById("profiles-detail-view");
+  simplePortPolicy = simplePortPolicy || document.getElementById("simple-port-policy");
+  groupFixedPort = groupFixedPort || document.getElementById("group-fixed-port");
+}
 
 function showListView() {
+  ensureDOMElements();
   if (profileListView) profileListView.style.display = "";
   if (profileDetailView) profileDetailView.style.display = "none";
 }
 
 function showDetailView() {
+  ensureDOMElements();
   if (profileListView) profileListView.style.display = "none";
   if (profileDetailView) profileDetailView.style.display = "";
 }
 
-const backBtn = document.getElementById("btn-back-to-profiles-list");
-if (backBtn) {
-  backBtn.addEventListener("click", showListView);
-}
+
 
 // Apply model-embedded defaults when the model selection changes in the profile builder
 export function applyModelDefaults(modelId) {
@@ -79,48 +89,6 @@ export function applyModelDefaults(modelId) {
   updateVRAMEstimate();
 }
 
-const modelSelectElem = document.getElementById("profile-model");
-if (modelSelectElem) {
-  modelSelectElem.addEventListener("change", (e) => {
-    applyModelDefaults(e.target.value);
-  });
-}
-
-const simpleCtxElem = document.getElementById("simple-ctx");
-if (simpleCtxElem) {
-  simpleCtxElem.addEventListener("change", updateVRAMEstimate);
-}
-
-const simpleMMProjEnable = document.getElementById("simple-mmproj-enable");
-const simpleMMProjDropdownGroup = document.getElementById("simple-mmproj-dropdown-group");
-const simpleMMProjSelect = document.getElementById("simple-mmproj-select");
-
-if (simpleMMProjEnable) {
-  simpleMMProjEnable.addEventListener("change", (e) => {
-    if (e.target.checked) {
-      if (simpleMMProjDropdownGroup) simpleMMProjDropdownGroup.style.display = "block";
-    } else {
-      if (simpleMMProjDropdownGroup) simpleMMProjDropdownGroup.style.display = "none";
-    }
-    updateCLIPreview();
-    updateVRAMEstimate();
-  });
-}
-
-if (simpleMMProjSelect) {
-  simpleMMProjSelect.addEventListener("change", () => {
-    updateCLIPreview();
-    updateVRAMEstimate();
-  });
-}
-
-// Presets Click Binding
-document.querySelectorAll(".preset-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    const preset = btn.dataset.preset;
-    applyPreset(preset);
-  });
-});
 
 export function applyPreset(name) {
   // Clean all inputs first
@@ -194,40 +162,153 @@ export function applyPreset(name) {
   updateVRAMEstimate();
 }
 
-// Tabs
-const profileTabButtons = document.querySelectorAll(".profile-editor .tab-btn");
-const profileTabContents = document.querySelectorAll(".profile-editor .tab-content");
+export function bindProfileListeners() {
+  ensureDOMElements();
 
-profileTabButtons.forEach(btn => {
-  btn.addEventListener("click", () => {
-    profileTabButtons.forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    profileTabContents.forEach(tc => tc.classList.remove("active"));
-    document.getElementById(`profile-tab-${btn.dataset.tab}`).classList.add("active");
-  });
-});
+  // Tabs
+  const profileTabButtons = document.querySelectorAll(".profile-editor .tab-btn");
+  const profileTabContents = document.querySelectorAll(".profile-editor .tab-content");
 
-if (simplePortPolicy) {
-  simplePortPolicy.addEventListener("change", () => {
-    groupFixedPort.style.display = simplePortPolicy.value === "fixed" ? "block" : "none";
-    updateCLIPreview();
+  profileTabButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      profileTabButtons.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      profileTabContents.forEach(tc => tc.classList.remove("active"));
+      document.getElementById(`profile-tab-${btn.dataset.tab}`).classList.add("active");
+    });
   });
-}
 
-// Watch profile form inputs
-if (profileForm) {
-  profileForm.addEventListener("input", (e) => {
-    updateCLIPreview();
-  });
-}
+  if (simplePortPolicy) {
+    simplePortPolicy.addEventListener("change", () => {
+      if (groupFixedPort) groupFixedPort.style.display = simplePortPolicy.value === "fixed" ? "block" : "none";
+      updateCLIPreview();
+    });
+  }
 
-if (newProfileBtn) {
-  newProfileBtn.addEventListener("click", () => {
-    initProfileEditor();
+  // Watch profile form inputs
+  if (profileForm) {
+    profileForm.addEventListener("input", (e) => {
+      updateCLIPreview();
+    });
+  }
+
+  if (newProfileBtn) {
+    newProfileBtn.addEventListener("click", () => {
+      initProfileEditor();
+    });
+  }
+
+  const backBtn = document.getElementById("btn-back-to-profiles-list");
+  if (backBtn) {
+    backBtn.addEventListener("click", showListView);
+  }
+
+  const modelSelectElem = document.getElementById("profile-model");
+  if (modelSelectElem) {
+    modelSelectElem.addEventListener("change", (e) => {
+      applyModelDefaults(e.target.value);
+    });
+  }
+
+  const simpleCtxElem = document.getElementById("simple-ctx");
+  if (simpleCtxElem) {
+    simpleCtxElem.addEventListener("change", updateVRAMEstimate);
+  }
+
+  const simpleMMProjEnable = document.getElementById("simple-mmproj-enable");
+  const simpleMMProjDropdownGroup = document.getElementById("simple-mmproj-dropdown-group");
+  const simpleMMProjSelect = document.getElementById("simple-mmproj-select");
+
+  if (simpleMMProjEnable) {
+    simpleMMProjEnable.addEventListener("change", (e) => {
+      if (e.target.checked) {
+        if (simpleMMProjDropdownGroup) simpleMMProjDropdownGroup.style.display = "block";
+      } else {
+        if (simpleMMProjDropdownGroup) simpleMMProjDropdownGroup.style.display = "none";
+      }
+      updateCLIPreview();
+      updateVRAMEstimate();
+    });
+  }
+
+  if (simpleMMProjSelect) {
+    simpleMMProjSelect.addEventListener("change", () => {
+      updateCLIPreview();
+      updateVRAMEstimate();
+    });
+  }
+
+  // Presets Click Binding
+  document.querySelectorAll(".preset-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const preset = btn.dataset.preset;
+      applyPreset(preset);
+    });
   });
+
+  const copyBtn = document.getElementById("btn-copy-cli-command");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", () => {
+      const txt = document.getElementById("cli-command-text").textContent;
+      navigator.clipboard.writeText(txt);
+      alert("Invocations copied to clipboard!");
+    });
+  }
+
+  if (profileForm) {
+    profileForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await saveActiveProfile();
+    });
+  }
+
+  const saveRunBtn = document.getElementById("btn-save-run-profile");
+  if (saveRunBtn) {
+    saveRunBtn.addEventListener("click", async () => {
+      const p = await saveActiveProfile();
+      if (p && window.launchServerInstance) {
+        await window.launchServerInstance(p.id);
+      }
+    });
+  }
+
+  if (deleteProfileBtn) {
+    deleteProfileBtn.addEventListener("click", async () => {
+      const id = document.getElementById("edit-profile-id").value;
+      if (confirm("Are you sure you want to delete this profile?")) {
+        try {
+          await apiCall(`/api/profiles/${id}`, "DELETE");
+          if (window.loadData) await window.loadData();
+          loadProfilesList();
+          showListView();
+        } catch (err) {
+          alert(err.message);
+        }
+      }
+    });
+  }
+
+  const exportJSONBtn = document.getElementById("btn-export-profile-json");
+  if (exportJSONBtn) {
+    exportJSONBtn.addEventListener("click", () => {
+      const id = document.getElementById("edit-profile-id").value;
+      if (!id) return;
+      window.open(`/api/profiles/${id}/export.json`);
+    });
+  }
+
+  const exportSHBtn = document.getElementById("btn-export-profile-sh");
+  if (exportSHBtn) {
+    exportSHBtn.addEventListener("click", () => {
+      const id = document.getElementById("edit-profile-id").value;
+      if (!id) return;
+      window.open(`/api/profiles/${id}/export.sh`);
+    });
+  }
 }
 
 export function loadProfilesList() {
+  ensureDOMElements();
   if (!profileListContainer) return;
 
   if (state.profiles.length === 0) {
@@ -870,33 +951,6 @@ export function validateActiveProfile() {
     return true;
   }
 }
-
-const copyBtn = document.getElementById("btn-copy-cli-command");
-if (copyBtn) {
-  copyBtn.addEventListener("click", () => {
-    const txt = document.getElementById("cli-command-text").textContent;
-    navigator.clipboard.writeText(txt);
-    alert("Invocations copied to clipboard!");
-  });
-}
-
-if (profileForm) {
-  profileForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    await saveActiveProfile();
-  });
-}
-
-const saveRunBtn = document.getElementById("btn-save-run-profile");
-if (saveRunBtn) {
-  saveRunBtn.addEventListener("click", async () => {
-    const p = await saveActiveProfile();
-    if (p && window.launchServerInstance) {
-      await window.launchServerInstance(p.id);
-    }
-  });
-}
-
 export async function saveActiveProfile() {
   if (!validateActiveProfile()) {
     alert("Validation errors detected. Please resolve all red error diagnostics before saving this profile.");
@@ -952,36 +1006,8 @@ export async function saveActiveProfile() {
   }
 }
 
-if (deleteProfileBtn) {
-  deleteProfileBtn.addEventListener("click", async () => {
-    const id = document.getElementById("edit-profile-id").value;
-    if (confirm("Are you sure you want to delete this profile?")) {
-      try {
-        await apiCall(`/api/profiles/${id}`, "DELETE");
-        if (window.loadData) await window.loadData();
-        loadProfilesList();
-        showListView();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-  });
-}
-
-const exportJSONBtn = document.getElementById("btn-export-profile-json");
-if (exportJSONBtn) {
-  exportJSONBtn.addEventListener("click", () => {
-    const id = document.getElementById("edit-profile-id").value;
-    if (!id) return;
-    window.open(`/api/profiles/${id}/export.json`);
-  });
-}
-
-const exportSHBtn = document.getElementById("btn-export-profile-sh");
-if (exportSHBtn) {
-  exportSHBtn.addEventListener("click", () => {
-    const id = document.getElementById("edit-profile-id").value;
-    if (!id) return;
-    window.open(`/api/profiles/${id}/export.sh`);
-  });
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", bindProfileListeners);
+} else {
+  bindProfileListeners();
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"syscall"
 )
@@ -244,6 +245,19 @@ func Open(dataDir string) (*DB, error) {
 	if err := db.load("models.json", &db.models); err != nil {
 		return nil, err
 	}
+	// Clean up pre-existing mmproj files in database
+	cleaned := false
+	for id, m := range db.models {
+		filename := filepath.Base(m.Path)
+		if isMMProj(filename) {
+			delete(db.models, id)
+			cleaned = true
+		}
+	}
+	if cleaned {
+		_ = db.save("models.json", db.models)
+	}
+
 	if err := db.load("profiles.json", &db.profiles); err != nil {
 		return nil, err
 	}
@@ -365,7 +379,9 @@ func (db *DB) ListModels() []Model {
 
 	list := make([]Model, 0, len(db.models))
 	for _, m := range db.models {
-		list = append(list, m)
+		if !isMMProj(filepath.Base(m.Path)) {
+			list = append(list, m)
+		}
 	}
 	return list
 }
@@ -673,4 +689,19 @@ func (db *DB) GetLogFileLines(serverID string, maxLines int) ([]string, error) {
 		lines = lines[len(lines)-maxLines:]
 	}
 	return lines, nil
+}
+
+var mmprojRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^mmproj-.*\.gguf$`),
+	regexp.MustCompile(`(?i)^mmproj\.gguf$`),
+	regexp.MustCompile(`(?i).*[-_]mmproj([-_.].*)?\.gguf$`),
+}
+
+func isMMProj(filename string) bool {
+	for _, r := range mmprojRegexes {
+		if r.MatchString(filename) {
+			return true
+		}
+	}
+	return false
 }

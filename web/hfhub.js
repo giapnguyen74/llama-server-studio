@@ -188,7 +188,7 @@ async function renderDownloadHistorySection(root) {
       h("div", {},
         h("strong", {style: "display:block; font-size: 0.88rem;"}, rj.repo_id),
         h("span", {style: "font-size: 0.75rem; color: var(--text-dim);"},
-          `${rj.files_count} files · ${formatBytes(rj.totalBytes)} · Finished: ${formatDate(rj.finished_at)}`)
+          `${rj.files_count} files · ${formatBytes(rj.total_bytes || rj.totalBytes)} · Finished: ${formatDate(rj.finished_at)}`)
       ),
       h("span", {class: `status-pill ${statusClass}`}, rj.status)
     );
