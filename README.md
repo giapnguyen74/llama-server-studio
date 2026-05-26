@@ -1,89 +1,114 @@
 # 🦙 Llama Server Studio
 
-**Llama Server Studio** is a self-contained, local-first operational dashboard, benchmark engine, and process supervisor for `llama-server` from `llama.cpp`.
+> **Ollama is too simple. `llama.cpp` is too complex. This is the middle ground.**
 
-Designed for developers working with local GGUF models, this tool allows you to catalog local models, construct valid `llama-server` command-line configurations with real-time syntax previews, supervise child runtime instances, record performance benchmarks, and expose stable inference routing gateways.
-
-> [!NOTE]  
-> The entire application is built **strictly using the Go Standard Library**. It has **zero third-party dependencies** (no node_modules, no external database runtimes, no compilation CGO bindings). The vibrant frontend Web UI is embedded directly inside the Go executable using `go:embed`.
+Running local LLMs shouldn't mean choosing between a locked-down black box and a wall of command-line flags. **Llama Server Studio** gives you the control of `llama.cpp`'s `llama-server` without the friction — a practical workbench for people who actually want to tune, benchmark, and ship local inference.
 
 ---
 
-## ⚡ Key Features
+## The Problem
 
-* **⚡ Fast Binary GGUF Metadata Parser**: Reads GGUF v1, v2, and v3 headers directly. Extracts context windows, model architectures, and default chat templates instantly without loading massive tensor data into memory.
-* **📂 Automated Model Discovery**: Recursively scans configured folders and Hugging Face local snapshot caches. Resolves symlinks, deduplicates path mappings, and identifies model capabilities.
-* **🛠️ Profile Builder & Shell Exporter**: Supports a *Simple Mode* slider-form for common flags (threads, batch size, VRAM layer counts, parallel seqs) and *Advanced Mode* for raw JSON arrays. Shows a real-time terminal CLI command preview. Exports profiles to standardized JSON and runnable `.sh` bash launchers.
-* **⚡ Child Process Supervisor**: Spawns and supervises `llama-server` child runtimes, automatically searching and allocating vacant OS ports. Saves stdout/stderr logs on disk, handles graceful SIGINT interruptions, and scrapes real-time CPU/memory usage metrics via native macOS/Linux system pipelines.
-* **📈 Automated Benchmark Runner**: Executes prompt throughput benchmarks directly against serving ports. Performs pre-heating warmups and active repetitions, parsing Timing JSON tokens-per-second values directly from llama-server completion timelines.
-* **🔗 Stable Profile Reverse Proxy**: Rewrites URL paths and proxies incoming completions traffic. Supports SSE (Server-Sent Events) chunk flushing with a dynamic `50ms` delay interval for real-time prompt test playgrounds.
-* **🛡️ Zero Dependency, Local Security**: Binds locally to `127.0.0.1:3100` by default. Can bind outside localhost securely using custom `--admin-token` request authorization blocks.
+**Ollama** is great for getting started. Pull a model, chat, done. But the moment you want to push past defaults — adjust layer offloading for your exact VRAM budget, tune batch sizes, run multiple configurations side-by-side, or understand *why* one setup is faster than another — you hit a wall. Ollama abstracts away the very knobs you need.
+
+**`llama.cpp` / `llama-server`** gives you everything. Every flag, every option, raw power. But building a valid server command, tracking what each profile does, correlating benchmark results with configuration changes, and wiring it up as a stable OpenAI-compatible endpoint? That's a spreadsheet, a pile of shell scripts, and a lot of `--help` calls.
+
+**There's a gap.** A practical gap for the developers, researchers, and hobbyists who know what they're doing but don't want to babysit processes and reinvent tooling every time.
+
+---
+
+## What Llama Server Studio Does
+
+### 📥 Simple Model Downloader
+Pull GGUF models by name — similar to `ollama pull`, but you land the actual file and you own it. No opaque blob storage. No registry lock-in. Just a GGUF on disk, with metadata extracted and catalogued automatically.
+
+### 🛠️ Profile Builder with Hardware Estimation
+Stop guessing `-ngl` values. Build named *serving profiles* with a visual form: select a model, set your thread count, batch size, parallel sequences, and context window. The studio estimates GPU layer counts that fit your VRAM budget and shows you the exact `llama-server` command it will run — always visible, always copyable.
+
+Switch between a **Simple Mode** slider UI and a raw **Advanced Mode** JSON array for complete flag control. Save profiles, export them as `.sh` scripts, share them with your team.
+
+### 📊 Benchmark & Meter Suite
+Run repeatable prompt-throughput benchmarks directly against your running servers. Pre-warming, repetition averaging, tokens-per-second parsing — all built in. Compare profiles side-by-side. Understand the real cost of a configuration change before you ship it.
+
+### 🔗 Proxy Gateway (OpenAI-compatible)
+Point your applications at the Studio's stable proxy address instead of ephemeral server ports. The gateway routes to whichever profile is active, handles SSE streaming, and speaks standard OpenAI API — so any tool that works with `ollama serve` or the OpenAI SDK works here too, without reconfiguration.
+
+---
+
+## ⚡ Key Technical Notes
+
+- **Zero dependencies** — pure Go standard library, single self-contained binary. No Node, no Docker, no external databases.
+- **Embedded Web UI** — the dashboard ships inside the binary via `go:embed`.
+- **Fast GGUF parser** — reads v1/v2/v3 headers directly without loading tensor data. Extracts context length, architecture, and chat template in milliseconds.
+- **Process supervisor** — spawns and watches `llama-server` child processes, auto-allocates ports, streams logs to disk, scrapes CPU/memory in real time.
+- **Local-first, local-safe** — binds to `127.0.0.1:3100` by default. LAN exposure requires explicit opt-in.
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Build the Binary
-Ensure you have Go installed (Go 1.22+ is recommended). Compile the completely self-contained binary:
+### Build
+
+Requires Go 1.22+. No other toolchain needed.
 
 ```bash
 go build -o llama-server-studio main.go
 ```
 
-### 2. Launch the Application
-Run the executable pointing to your GGUF models folders:
+### Run
 
 ```bash
 ./llama-server-studio --models-dir ~/models
 ```
 
-On launch, the Studio will print a terminal dashboard:
-```text
+Open **`http://127.0.0.1:3100`** in your browser.
+
+```
   🦙 L L A M A   S E R V E R   S T U D I O
   =========================================
   Listen Endpoint : http://127.0.0.1:3100
-  Data Directory  : /Users/username/.local/share/llama-server-studio
+  Data Directory  : ~/.llama-server-studio
   Binary Location : /opt/homebrew/bin/llama-server
-  Scan Folders    : /Users/username/models
+  Scan Folders    : ~/models
   =========================================
 ```
 
-### 3. Open the UI Dashboard
-Open your browser and navigate to **`http://127.0.0.1:3100`** to begin!
-
 ---
 
-## ⚙️ CLI Reference Parameters
-
-You can customize the Studio directly using CLI options on startup:
+## ⚙️ CLI Options
 
 | Option | Description | Default |
-| --- | --- | --- |
+|---|---|---|
 | `--listen` | Studio bind address and port | `127.0.0.1:3100` |
-| `--config` | Custom path to config.json file | `<data-dir>/config.json` |
-| `--data-dir` | **Mandatory** folder for logs, database, config | *None (Required)* |
-| `--llama-server-bin` | Direct absolute path to llama-server binary | *Auto-detected* |
-| `--models-dir` | Single GGUF model scan directory path | `<data-dir>/models` |
-| `--scan-hf-cache` | Scan local Hugging Face Hub cache directories | `true` |
-| `--allow-insecure-lan` | Allow non-localhost bindings without admin password | `false` |
-| `--password` | Set the admin password interactively and exit | *None* |
-
+| `--data-dir` | Folder for logs, database, config | `~/.llama-server-studio` |
+| `--config` | Path to config.json | `<data-dir>/config.json` |
+| `--llama-server-bin` | Path to llama-server binary | *auto-detected* |
+| `--models-dir` | GGUF model scan directory | `<data-dir>/models` |
+| `--scan-hf-cache` | Scan local Hugging Face cache | `true` |
+| `--allow-insecure-lan` | Allow non-localhost without password | `false` |
+| `--password` | Set admin password and exit | *none* |
 
 ---
 
-## 📁 Storage Schema & Files
+## 📁 Data Layout
 
-The Studio stores persistent records and log files cleanly in your shares folder:
-
-* **`studio.db`**: An atomic JSON database caching scanned GGUF catalog models, saved serving profiles, running telemetry metrics, and benchmark histories.
-* **`logs/`**: Keeps individual file logs streamed directly from `llama-server` stdout and stderr (e.g. `logs/server-srv_1716499.log`).
-* **`exports/`**: Holds exported configuration templates.
+```
+<data-dir>/
+├── studio.db       # JSON database: model catalog, profiles, benchmarks, metrics
+├── logs/           # Per-server stdout/stderr logs
+└── exports/        # Exported profile configs and shell scripts
+```
 
 ---
 
 ## 📝 Design Principles
 
-1. **Do not hide the command**: The exact generated command-line execution parameters are always visible and copyable.
-2. **Do not lock users into known flags**: Full raw argument array customization is supported.
-3. **Do not mutate model files**: The Model Catalog is read-only and strictly observational in v1.
-4. **Prefer local safety**: Binds locally by default, protecting active pipelines and file systems securely.
+1. **Never hide the command.** The exact `llama-server` invocation is always visible and copyable.
+2. **Never lock you in.** Raw argument arrays are always an option alongside the form UI.
+3. **Never touch your models.** The catalog is read-only. Files are never modified.
+4. **Local by default.** No cloud, no telemetry, no surprises.
+
+---
+
+## License
+
+[GPL-3.0](./LICENSE)

@@ -37,7 +37,7 @@ func main() {
 	// 1. Setup CLI Flags
 	listenFlag      := flag.String("listen", "", "Studio bind address (default 127.0.0.1:3100)")
 	configFlag      := flag.String("config", "", "Path to config.json file")
-	dataDirFlag     := flag.String("data-dir", "", "Path to data directory (MANDATORY)")
+	dataDirFlag     := flag.String("data-dir", "", "Path to data directory (default ~/.llama-server-studio)")
 	serverBinFlag   := flag.String("llama-server-bin", "", "Path to llama-server executable")
 	binDirFlag      := flag.String("llama-bin-dir", "", "Path to llama.cpp binary directory")
 	modelsDirFlag   := flag.String("models-dir", "", "Models scan directory path (defaults to <data-dir>/models)")
@@ -47,9 +47,13 @@ func main() {
 
 	flag.Parse()
 
-	// 1b. Enforce mandatory data-dir
+	// 1b. Resolve data-dir: default to ~/.llama-server-studio
 	if *dataDirFlag == "" {
-		log.Fatalf("CRITICAL ERROR: --data-dir parameter is mandatory.")
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("CRITICAL ERROR: Cannot determine home directory for default --data-dir: %v", err)
+		}
+		*dataDirFlag = filepath.Join(home, ".llama-server-studio")
 	}
 
 	// 2. Load Configuration File
