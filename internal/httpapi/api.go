@@ -206,6 +206,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	// 6. Benchmarks API
 	mux.HandleFunc("GET /api/benchmarks", auth(s.handleListBenchmarks))
+	mux.HandleFunc("GET /api/benchmarks/corpus", auth(s.handleListCorpus))
 	mux.HandleFunc("POST /api/benchmarks", auth(s.handleRunBenchmark))
 	mux.HandleFunc("DELETE /api/benchmarks/{run_id}", auth(s.handleDeleteBenchmark))
 }

@@ -1,13 +1,16 @@
 package bench
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
-	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,21 +22,20 @@ type Runner struct {
 	db         *storage.DB
 	supervisor *process.Supervisor
 	mu         sync.Mutex
-	running    map[string]bool // tracks profileID -> running benchmark
+	running    map[string]bool // profileID -> running benchmark
 }
 
-type llamaCompletionTiming struct {
-	PredictedN         int     `json:"predicted_n"`
-	PredictedMS        float64 `json:"predicted_ms"`
-	PredictedPerSecond float64 `json:"predicted_per_second"`
-	PromptN            int     `json:"prompt_n"`
-	PromptMS           float64 `json:"prompt_ms"`
-	PromptPerSecond    float64 `json:"prompt_per_second"`
-}
-
-type llamaCompletionResponse struct {
-	Content string                `json:"content"`
-	Timings llamaCompletionTiming `json:"timings"`
+type sseChunk struct {
+	Content string `json:"content"`
+	Stop    bool   `json:"stop"`
+	Timings *struct {
+		PredictedN         int     `json:"predicted_n"`
+		PredictedMS        float64 `json:"predicted_ms"`
+		PredictedPerSecond float64 `json:"predicted_per_second"`
+		PromptN            int     `json:"prompt_n"`
+		PromptMS           float64 `json:"prompt_ms"`
+		PromptPerSecond    float64 `json:"prompt_per_second"`
+	} `json:"timings"`
 }
 
 func NewRunner(db *storage.DB, s *process.Supervisor) *Runner {
@@ -44,13 +46,16 @@ func NewRunner(db *storage.DB, s *process.Supervisor) *Runner {
 	}
 }
 
+// RunBenchmark runs a redesigned benchmark suite (single-shot, sweep, grid, or concurrency).
 func (br *Runner) RunBenchmark(
 	profileID string,
-	prompt string,
-	maxTokens int,
-	temperature float64,
-	repeatCount int,
-	warmupCount int,
+	kind string,
+	sweepFlag string,
+	sweepValues []string,
+	workloadID string,
+	concurrencyPlan []int,
+	repeats int,
+	warmups int,
 ) (*storage.BenchmarkRun, error) {
 	br.mu.Lock()
 	if br.running[profileID] {
@@ -66,196 +71,480 @@ func (br *Runner) RunBenchmark(
 		br.mu.Unlock()
 	}()
 
-	// 1. Fetch profile and model
+	// 1. Fetch workload
+	workloads := GetWorkloads(br.db.GetDataDir())
+	var workload Workload
+	foundwl := false
+	for _, wl := range workloads {
+		if wl.ID == workloadID {
+			workload = wl
+			foundwl = true
+			break
+		}
+	}
+	if !foundwl && len(workloads) > 0 {
+		workload = workloads[0] // fallback to first
+	}
+
 	p, ok := br.db.GetProfile(profileID)
 	if !ok {
 		return nil, errors.New("profile not found")
 	}
-	m, ok := br.db.GetModel(p.ModelID)
-	if !ok {
-		return nil, errors.New("associated model not found")
+	if _, ok := br.db.GetModel(p.ModelID); !ok {
+		return nil, errors.New("associated GGUF model not found")
 	}
 
-	// 2. Resolve server. If stopped, start it
-	srv, active := br.db.GetServerByProfile(profileID)
-	startedByBench := false
-	if !active || (srv.Status != "healthy" && srv.Status != "starting") {
-		// Load a temporary supervisor run
-		srvID, err := br.supervisor.StartServer(profileID, "", 41000, 41999)
-		if err != nil {
-			return nil, fmt.Errorf("failed to start stopped server for benchmark: %w", err)
-		}
-		startedByBench = true
-
-		// Wait for server to become healthy (poll up to 30s)
-		for i := 0; i < 120; i++ {
-			time.Sleep(250 * time.Millisecond)
-			if s, ok := br.db.GetServer(srvID); ok && s.Status == "healthy" {
-				srv = s
-				break
-			}
-		}
-		
-		if srv.Status != "healthy" {
-			_ = br.supervisor.StopServer(srvID)
-			return nil, errors.New("server failed to start and become healthy for benchmark within 30 seconds")
-		}
-	}
-
-	// Shut down server on completion if we started it
-	defer func() {
-		if startedByBench {
-			_ = br.supervisor.StopServer(srv.ID)
-		}
-	}()
-
-	// 3. Create BenchmarkRun record
 	runID := fmt.Sprintf("bench_%d", time.Now().UnixNano())
-	params := map[string]interface{}{
-		"max_tokens":  maxTokens,
-		"temperature": temperature,
-		"repeat":      repeatCount,
-		"warmup":      warmupCount,
-	}
-
 	run := storage.BenchmarkRun{
 		ID:              runID,
-		ProfileID:       p.ID,
-		ServerID:        srv.ID,
-		ModelID:         m.ID,
-		Prompt:          prompt,
-		Params:          params,
+		ProfileID:       profileID,
+		ModelID:         p.ModelID,
+		Prompt:          workload.Prompt,
+		Params: map[string]interface{}{
+			"max_tokens":  workload.MaxTokens,
+			"temperature": workload.Temperature,
+			"warmups":     warmups,
+			"repeats":     repeats,
+		},
 		ProfileSnapshot: p,
 		StartedAt:       time.Now().Format(time.RFC3339),
 		Status:          "running",
+		Kind:            kind,
+		SweepFlag:       sweepFlag,
+		SweepValues:     sweepValues,
+		WorkloadID:      workload.ID,
+		ConcurrencyPlan: concurrencyPlan,
+		Cells:           []storage.BenchmarkCell{},
 	}
 	_ = br.db.SaveBenchmarkRun(run)
 
-	client := &http.Client{Timeout: 120 * time.Second}
-	completionURL := fmt.Sprintf("http://%s:%d/completion", srv.Host, srv.Port)
-
-	// Helper to write to logs
-	writeServerLog := func(msg string) {
-		logPath := br.db.GetLogFilePath(srv.ID)
-		if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0644); err == nil {
-			_, _ = f.WriteString(fmt.Sprintf("[BENCHMARK] %s\n", msg))
-			_ = f.Close()
-		}
+	// Save original server details to restore later if running
+	origSrv, origActive := br.db.GetServerByProfile(profileID)
+	if origActive {
+		// Stop active server so it doesn't conflict with our overrides or ports
+		_ = br.supervisor.StopServer(origSrv.ID)
 	}
 
-	writeServerLog(fmt.Sprintf("Starting benchmark run %s on server PID %d", runID, srv.PID))
-
-	// 4. Run Warmup
-	if warmupCount > 0 {
-		writeServerLog(fmt.Sprintf("Executing %d warmup iterations...", warmupCount))
-		for i := 0; i < warmupCount; i++ {
-			body, _ := json.Marshal(map[string]interface{}{
-				"prompt":    prompt,
-				"n_predict": 5, // small predicting tokens for fast warmup
-				"temp":      temperature,
-			})
-			
-			req, _ := http.NewRequest("POST", completionURL, bytes.NewBuffer(body))
-			req.Header.Set("Content-Type", "application/json")
-			
-			resp, err := client.Do(req)
-			if err == nil {
-				_, _ = io.Copy(io.Discard, resp.Body)
-				resp.Body.Close()
-			}
+	// Helper to restore server
+	defer func() {
+		if origActive {
+			_, _ = br.supervisor.StartServer(profileID, "", 41000, 41999)
 		}
-	}
+	}()
 
-	// 5. Active repetitions
-	writeServerLog(fmt.Sprintf("Executing %d benchmark repetitions (tokens limit: %d)...", repeatCount, maxTokens))
-	
-	var totalTokens int
-	var totalGenerationTimeMS float64
-	var tokensPerSecondSum float64
-	var latencySum float64
-	var errorCount int
-	var completions []string
+	var cells []storage.BenchmarkCell
+	var runErr error
 
-	for i := 0; i < repeatCount; i++ {
-		body, _ := json.Marshal(map[string]interface{}{
-			"prompt":    prompt,
-			"n_predict": maxTokens,
-			"temp":      temperature,
-		})
-
-		reqStart := time.Now()
-		req, _ := http.NewRequest("POST", completionURL, bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := client.Do(req)
+	if kind == "single_shot" {
+		cell, err := br.executeCell(profileID, "Single-Shot", nil, workload, warmups, repeats)
 		if err != nil {
-			errorCount++
-			writeServerLog(fmt.Sprintf("Repetition %d failed: %s", i+1, err.Error()))
-			continue
+			runErr = err
+		} else {
+			cells = append(cells, cell)
 		}
-
-		respBody, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK || readErr != nil {
-			errorCount++
-			writeServerLog(fmt.Sprintf("Repetition %d failed with status %d", i+1, resp.StatusCode))
-			continue
+	} else if kind == "sweep" {
+		for _, val := range sweepValues {
+			label := fmt.Sprintf("%s = %s", sweepFlag, val)
+			overrides := map[string]string{sweepFlag: val}
+			cell, err := br.executeCell(profileID, label, overrides, workload, warmups, repeats)
+			if err != nil {
+				runErr = err
+				break
+			}
+			cells = append(cells, cell)
 		}
-
-		duration := time.Since(reqStart)
-
-		var lResp llamaCompletionResponse
-		if err := json.Unmarshal(respBody, &lResp); err != nil {
-			// fallback if timings format differs
-			errorCount++
-			writeServerLog(fmt.Sprintf("Repetition %d returned malformed timings structure: %s", i+1, err.Error()))
-			continue
+	} else if kind == "concurrency" {
+		// Concurrency load testing
+		for _, cLevel := range concurrencyPlan {
+			label := fmt.Sprintf("Concurrency: %d", cLevel)
+			cell, err := br.executeConcurrencyCell(profileID, label, cLevel, workload, warmups)
+			if err != nil {
+				runErr = err
+				break
+			}
+			cells = append(cells, cell)
 		}
-
-		// Collect statistics
-		completions = append(completions, lResp.Content)
-		
-		tps := lResp.Timings.PredictedPerSecond
-		if tps == 0 && lResp.Timings.PredictedMS > 0 {
-			// Manual math fallback
-			tps = float64(lResp.Timings.PredictedN) / (lResp.Timings.PredictedMS / 1000.0)
-		}
-
-		totalTokens += lResp.Timings.PredictedN
-		totalGenerationTimeMS += lResp.Timings.PredictedMS
-		tokensPerSecondSum += tps
-		latencySum += float64(duration.Milliseconds())
-
-		writeServerLog(fmt.Sprintf("Repetition %d: %d tokens, %.2f tokens/sec, latency: %s", i+1, lResp.Timings.PredictedN, tps, duration))
 	}
 
-	// 6. Complete results
 	run.CompletedAt = time.Now().Format(time.RFC3339)
-	
-	if errorCount == repeatCount {
+	if runErr != nil {
 		run.Status = "failed"
-		run.Error = "All repetitions failed during benchmark execution."
+		run.Error = runErr.Error()
 	} else {
 		run.Status = "completed"
-		successCount := float64(repeatCount - errorCount)
-		
-		avgTPS := tokensPerSecondSum / successCount
-		avgLatency := latencySum / successCount
-
-		result := map[string]interface{}{
-			"tokens_generated":   totalTokens,
-			"avg_tokens_per_sec": avgTPS,
-			"avg_latency_ms":     avgLatency,
-			"success_rate":       (successCount / float64(repeatCount)) * 100,
-			"error_count":        errorCount,
-			"completions":        completions,
-		}
-
-		run.Result = result
-		writeServerLog(fmt.Sprintf("Benchmark completed successfully! Average: %.2f tokens/sec, Latency: %.0fms", avgTPS, avgLatency))
+		run.Cells = cells
+		run.Recommendation = br.generateRecommendation(cells)
 	}
 
 	_ = br.db.SaveBenchmarkRun(run)
 	return &run, nil
+}
+
+func (br *Runner) executeCell(
+	profileID string,
+	label string,
+	overrides map[string]string,
+	workload Workload,
+	warmups int,
+	repeats int,
+) (storage.BenchmarkCell, error) {
+	cell := storage.BenchmarkCell{
+		Label:         label,
+		FlagOverrides: overrides,
+		StartedAt:     time.Now().Format(time.RFC3339),
+		Status:        "running",
+		Samples:       []storage.BenchmarkSample{},
+	}
+
+	// 1. Spawn temporary server with overrides
+	srvID, err := br.supervisor.StartServerWithOverrides(profileID, "", 41000, 41999, overrides)
+	if err != nil {
+		return cell, fmt.Errorf("failed to start sweep server: %w", err)
+	}
+	defer func() {
+		_ = br.supervisor.StopServer(srvID)
+	}()
+
+	// Wait for healthy state
+	var srv storage.Server
+	healthy := false
+	for i := 0; i < 80; i++ {
+		time.Sleep(250 * time.Millisecond)
+		if s, ok := br.db.GetServer(srvID); ok && s.Status == "healthy" {
+			srv = s
+			healthy = true
+			break
+		}
+	}
+	if !healthy {
+		return cell, errors.New("sweep server failed to become healthy within 20s")
+	}
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	completionURL := fmt.Sprintf("http://%s:%d/completion", srv.Host, srv.Port)
+
+	// Discard first cold-start request entirely
+	br.streamRequest(client, completionURL, workload, 5)
+
+	// Run warmups
+	for i := 0; i < warmups; i++ {
+		br.streamRequest(client, completionURL, workload, 5)
+	}
+
+	// Run measurement repetitions
+	var samples []storage.BenchmarkSample
+	for i := 0; i < repeats; i++ {
+		sample := br.streamRequest(client, completionURL, workload, workload.MaxTokens)
+		sample.RequestIndex = i + 1
+		samples = append(samples, sample)
+	}
+
+	cell.CompletedAt = time.Now().Format(time.RFC3339)
+	cell.Status = "completed"
+	cell.Samples = samples
+	cell.Aggregates = br.computeAggregates(samples)
+
+	// Noise gate check
+	if cell.Aggregates.TGSpeedStdDev > 0 && cell.Aggregates.TGSpeedMean > 0 {
+		if (cell.Aggregates.TGSpeedStdDev / cell.Aggregates.TGSpeedMean) > 0.20 {
+			cell.Noisy = true
+		}
+	}
+
+	return cell, nil
+}
+
+func (br *Runner) executeConcurrencyCell(
+	profileID string,
+	label string,
+	concurrency int,
+	workload Workload,
+	warmups int,
+) (storage.BenchmarkCell, error) {
+	cell := storage.BenchmarkCell{
+		Label:         label,
+		FlagOverrides: nil,
+		StartedAt:     time.Now().Format(time.RFC3339),
+		Status:        "running",
+		Samples:       []storage.BenchmarkSample{},
+	}
+
+	srvID, err := br.supervisor.StartServer(profileID, "", 41000, 41999)
+	if err != nil {
+		return cell, fmt.Errorf("failed to start concurrency server: %w", err)
+	}
+	defer func() {
+		_ = br.supervisor.StopServer(srvID)
+	}()
+
+	var srv storage.Server
+	healthy := false
+	for i := 0; i < 80; i++ {
+		time.Sleep(250 * time.Millisecond)
+		if s, ok := br.db.GetServer(srvID); ok && s.Status == "healthy" {
+			srv = s
+			healthy = true
+			break
+		}
+	}
+	if !healthy {
+		return cell, errors.New("concurrency server failed to become healthy within 20s")
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	completionURL := fmt.Sprintf("http://%s:%d/completion", srv.Host, srv.Port)
+
+	// Warmup
+	for i := 0; i < warmups; i++ {
+		br.streamRequest(client, completionURL, workload, 5)
+	}
+
+	// Concurrency load execution
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var samples []storage.BenchmarkSample
+
+	// Run concurrent requests in parallel
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			s := br.streamRequest(client, completionURL, workload, workload.MaxTokens)
+			s.RequestIndex = idx + 1
+			mu.Lock()
+			samples = append(samples, s)
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+
+	cell.CompletedAt = time.Now().Format(time.RFC3339)
+	cell.Status = "completed"
+	cell.Samples = samples
+	cell.Aggregates = br.computeAggregates(samples)
+
+	// Calculate concurrent throughput
+	var totalGeneratedTokens float64
+	var maxDuration float64
+	for _, s := range samples {
+		if s.Error == "" {
+			totalGeneratedTokens += float64(s.OutputTokens)
+			if s.EndToEndMS > maxDuration {
+				maxDuration = s.EndToEndMS
+			}
+		}
+	}
+	if maxDuration > 0 {
+		cell.Aggregates.ThroughputTGS = (totalGeneratedTokens / (maxDuration / 1000.0))
+	}
+
+	return cell, nil
+}
+
+func (br *Runner) streamRequest(
+	client *http.Client,
+	url string,
+	workload Workload,
+	maxTokens int,
+) storage.BenchmarkSample {
+	sample := storage.BenchmarkSample{
+		ITLMS: []float64{},
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"prompt":    workload.Prompt,
+		"n_predict": maxTokens,
+		"temp":      workload.Temperature,
+		"stream":    true,
+	})
+
+	reqStart := time.Now()
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		sample.Error = err.Error()
+		sample.HTTPStatus = 500
+		return sample
+	}
+	defer resp.Body.Close()
+
+	sample.HTTPStatus = resp.StatusCode
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		sample.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))
+		return sample
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	var firstTokenReceived bool
+	var lastTokenTime time.Time
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		dataJSON := strings.TrimPrefix(line, "data: ")
+
+		var chunk sseChunk
+		if err := json.Unmarshal([]byte(dataJSON), &chunk); err == nil {
+			if chunk.Content != "" && !firstTokenReceived {
+				firstTokenReceived = true
+				sample.TTFTMS = float64(time.Since(reqStart).Milliseconds())
+				lastTokenTime = time.Now()
+			} else if chunk.Content != "" && firstTokenReceived {
+				sample.ITLMS = append(sample.ITLMS, float64(time.Since(lastTokenTime).Milliseconds()))
+				lastTokenTime = time.Now()
+			}
+
+			if chunk.Timings != nil {
+				sample.PromptTokens = chunk.Timings.PromptN
+				sample.OutputTokens = chunk.Timings.PredictedN
+				sample.PromptPerSec = chunk.Timings.PromptPerSecond
+				sample.PredictedPerSec = chunk.Timings.PredictedPerSecond
+			}
+			if chunk.Stop {
+				break
+			}
+		}
+	}
+
+	sample.EndToEndMS = float64(time.Since(reqStart).Milliseconds())
+
+	// Cap ITL elements to prevent JSON storage bloot
+	if len(sample.ITLMS) > 100 {
+		sample.ITLMS = append(sample.ITLMS[:50], sample.ITLMS[len(sample.ITLMS)-50:]...)
+	}
+
+	return sample
+}
+
+func (br *Runner) computeAggregates(samples []storage.BenchmarkSample) storage.BenchmarkAggregates {
+	var tgSpeeds, ppSpeeds, ttfts, e2es, itls []float64
+	var totalTG float64
+	var errCount int
+
+	for _, s := range samples {
+		if s.Error != "" || s.HTTPStatus != http.StatusOK {
+			errCount++
+			continue
+		}
+		tgSpeeds = append(tgSpeeds, s.PredictedPerSec)
+		ppSpeeds = append(ppSpeeds, s.PromptPerSec)
+		ttfts = append(ttfts, s.TTFTMS)
+		e2es = append(e2es, s.EndToEndMS)
+		totalTG += float64(s.OutputTokens)
+		itls = append(itls, s.ITLMS...)
+	}
+
+	n := float64(len(samples))
+	var errorRate float64
+	if n > 0 {
+		errorRate = (float64(errCount) / n) * 100
+	}
+
+	sort.Float64s(tgSpeeds)
+	sort.Float64s(ppSpeeds)
+	sort.Float64s(ttfts)
+	sort.Float64s(e2es)
+	sort.Float64s(itls)
+
+	mean := func(arr []float64) float64 {
+		if len(arr) == 0 {
+			return 0
+		}
+		var sum float64
+		for _, v := range arr {
+			sum += v
+		}
+		return sum / float64(len(arr))
+	}
+
+	stddev := func(arr []float64, avg float64) float64 {
+		if len(arr) <= 1 {
+			return 0
+		}
+		var sum float64
+		for _, v := range arr {
+			sum += (v - avg) * (v - avg)
+		}
+		return math.Sqrt(sum / float64(len(arr)-1))
+	}
+
+	p50 := func(arr []float64) float64 {
+		if len(arr) == 0 {
+			return 0
+		}
+		return arr[len(arr)/2]
+	}
+
+	p90 := func(arr []float64) float64 {
+		if len(arr) == 0 {
+			return 0
+		}
+		idx := int(float64(len(arr)) * 0.9)
+		if idx >= len(arr) {
+			idx = len(arr) - 1
+		}
+		return arr[idx]
+	}
+
+	p95 := func(arr []float64) float64 {
+		if len(arr) == 0 {
+			return 0
+		}
+		idx := int(float64(len(arr)) * 0.95)
+		if idx >= len(arr) {
+			idx = len(arr) - 1
+		}
+		return arr[idx]
+	}
+
+	tgMean := mean(tgSpeeds)
+	return storage.BenchmarkAggregates{
+		TGSpeedMean:      tgMean,
+		TGSpeedP50:       p50(tgSpeeds),
+		TGSpeedP90:       p90(tgSpeeds),
+		TGSpeedP99:       p95(tgSpeeds), // cap standard
+		TGSpeedStdDev:    stddev(tgSpeeds, tgMean),
+		PPSpeedMean:      mean(ppSpeeds),
+		PPSpeedP50:       p50(ppSpeeds),
+		TTFTP50:          p50(ttfts),
+		TTFTP95:          p95(ttfts),
+		ITLP50:           p50(itls),
+		ITLP95:           p95(itls),
+		E2EP50:           p50(e2es),
+		E2EP95:           p95(e2es),
+		ErrorRatePercent: errorRate,
+	}
+}
+
+func (br *Runner) generateRecommendation(cells []storage.BenchmarkCell) string {
+	if len(cells) == 0 {
+		return "No completed test variants to recommend."
+	}
+
+	var bestCell *storage.BenchmarkCell
+	maxSpeed := -1.0
+
+	for i := range cells {
+		c := &cells[i]
+		if c.Status == "completed" && c.Aggregates.TGSpeedMean > maxSpeed {
+			maxSpeed = c.Aggregates.TGSpeedMean
+			bestCell = c
+		}
+	}
+
+	if bestCell == nil {
+		return "Failed to evaluate any successful variants."
+	}
+
+	return fmt.Sprintf("Recommended settings: %s. Reached peak output throughput of %.1f tokens/s (warmup: done, stddev: %.2f). Use the Apply button to update your profile.",
+		bestCell.Label, bestCell.Aggregates.TGSpeedMean, bestCell.Aggregates.TGSpeedStdDev)
 }

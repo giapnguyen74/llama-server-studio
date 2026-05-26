@@ -804,28 +804,70 @@
         </header>
 
         <!-- Run Benchmark card -->
-        <div class="glass-card bench-card" style="margin-bottom: 20px; padding: 20px;">
-          <div class="card-header">
-            <h3>Run Benchmark</h3>
+        <div class="glass-card bench-card" style="margin-bottom: 20px; padding: 24px;">
+          <div class="card-header" style="margin-bottom:16px;">
+            <h3 style="font-size:1.1rem; color:var(--primary);">Configure Performance Benchmark Suite</h3>
           </div>
-          <div class="bench-body" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;">
-            <div class="form-group" style="margin-bottom: 0; flex: 1; min-width: 200px;">
-              <label for="bench-prompt">Select Benchmark Prompt</label>
-              <select id="bench-prompt">
-                <option value="quicksort">Write quicksort implementation in Go</option>
-                <option value="poem">Write a brief creative poem about a local LLM</option>
-                <option value="explain">Explain quantum computing simply to a child</option>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px;">
+            <div class="form-group">
+              <label for="bench-profile">Profile to Test</label>
+              <select id="bench-profile" style="width:100%; padding:8px; border-radius:6px; background:var(--bg-input); border:1px solid var(--border-soft); color:var(--text-main);"></select>
+            </div>
+            <div class="form-group">
+              <label for="bench-type">Benchmark Kind</label>
+              <select id="bench-type" style="width:100%; padding:8px; border-radius:6px; background:var(--bg-input); border:1px solid var(--border-soft); color:var(--text-main);">
+                <option value="single_shot">Single-Shot (Sanity Check)</option>
+                <option value="sweep">Sequential Flag Sweep</option>
+                <option value="concurrency">Concurrency Load Test</option>
               </select>
             </div>
-            <div class="form-group" style="margin-bottom: 0; width: 120px;">
-              <label for="bench-repeats">Repetitions</label>
-              <input type="number" id="bench-repeats" value="3">
+            <div class="form-group">
+              <label for="bench-workload">Workload Corpus</label>
+              <select id="bench-workload" style="width:100%; padding:8px; border-radius:6px; background:var(--bg-input); border:1px solid var(--border-soft); color:var(--text-main);"></select>
             </div>
-            <button class="btn btn-accent" id="btn-trigger-bench" style="white-space: nowrap;">
+          </div>
+
+          <!-- Dynamic sweep container -->
+          <div id="bench-sweep-options" style="display:none; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px; background:rgba(255,255,255,0.02); padding:16px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+            <div class="form-group">
+              <label for="bench-sweep-flag">Sweep Parameter</label>
+              <select id="bench-sweep-flag" style="width:100%; padding:8px; border-radius:6px; background:var(--bg-input); border:1px solid var(--border-soft); color:var(--text-main);">
+                <option value="-ngl">GPU Layers (-ngl)</option>
+                <option value="-b">Logical Batch Size (-b)</option>
+                <option value="-t">CPU Threads (-t)</option>
+                <option value="--flash-attn">Flash Attention (--flash-attn)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="bench-sweep-values">Values (comma separated)</label>
+              <input type="text" id="bench-sweep-values" value="0, 10, 20, 30, auto" placeholder="e.g. 128, 512, 1024" style="width:100%; padding:8px; border-radius:6px; background:var(--bg-input); border:1px solid var(--border-soft); color:var(--text-main);">
+            </div>
+          </div>
+
+          <!-- Concurrency options -->
+          <div id="bench-concurrency-options" style="display:none; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px; background:rgba(255,255,255,0.02); padding:16px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+            <div class="form-group">
+              <label for="bench-concurrency-plan">Concurrency Steps (comma separated)</label>
+              <input type="text" id="bench-concurrency-plan" value="1, 2, 4" placeholder="e.g. 1, 2, 4, 8" style="width:100%; padding:8px; border-radius:6px; background:var(--bg-input); border:1px solid var(--border-soft); color:var(--text-main);">
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span class="field-hint" style="color:var(--text-muted); font-size:0.8rem;">Note: Sweeps spawn fresh sandbox servers cell-by-cell for statistical isolation.</span>
+            <button class="btn btn-accent" id="btn-trigger-bench" style="padding: 10px 20px;">
               <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
-              Execute Performance Run
+              Execute Performance Suite
             </button>
           </div>
+        </div>
+
+        <!-- Highlighted Recommendation Box -->
+        <div id="bench-recommendation-box" class="glass-card" style="display:none; padding:16px; margin-bottom:20px; background:rgba(16,163,127,0.08); border:1px solid rgba(16,163,127,0.25); border-radius:8px;">
+          <h4 style="color:var(--primary); margin:0 0 8px 0; font-size:0.92rem; display:flex; align-items:center; gap:8px;">
+            <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;color:var(--primary);"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>
+            Optimal Recommendation
+          </h4>
+          <p id="bench-recommendation-text" style="margin:0; font-size:0.86rem; line-height:1.4; color:var(--text-main); font-weight:500;">Calculating optimal variants...</p>
         </div>
 
         <div class="glass-card table-card">
@@ -834,10 +876,10 @@
               <tr>
                 <th>Benchmark ID</th>
                 <th>Profile</th>
-                <th>Model</th>
-                <th>Prompt Snapshot</th>
-                <th>Avg Speed (T/s)</th>
-                <th>Avg Latency</th>
+                <th>Type</th>
+                <th>Workload</th>
+                <th>Avg Gen Speed (T/s)</th>
+                <th>Avg Latency (E2E)</th>
                 <th>Status</th>
                 <th>Date</th>
                 <th>Actions</th>

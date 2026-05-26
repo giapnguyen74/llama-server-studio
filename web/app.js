@@ -120,7 +120,10 @@ function initNavigation() {
       if (target === "hfhub") loadHFHub();
       if (target === "profiles") loadProfilesList();
       if (target === "servers") loadServerLifecycleView();
-      if (target === "benchmarks") loadBenchmarksHistory();
+      if (target === "benchmarks") {
+        loadBenchmarksForm();
+        loadBenchmarksHistory();
+      }
       if (target === "security") loadSecurityView();
     });
   });
@@ -718,49 +721,96 @@ if (btnCopyCurl) {
   });
 }
 
-// --- 8. BENCHMARKS HISTORY SECTION ---
+// --- 8. BENCHMARKS HISTORY & REDESIGN SUITE ---
+
+async function loadBenchmarksForm() {
+  const profileSelect = document.getElementById("bench-profile");
+  if (profileSelect) {
+    profileSelect.replaceChildren(
+      ...state.profiles.map(p => h("option", {value: p.id}, p.name))
+    );
+  }
+
+  const wlSelect = document.getElementById("bench-workload");
+  if (wlSelect && (!wlSelect.children || wlSelect.children.length <= 1)) {
+    try {
+      const workloads = await apiCall("/api/benchmarks/corpus");
+      wlSelect.replaceChildren(
+        ...workloads.map(w => h("option", {value: w.id}, `${w.name} (${w.max_tokens} tokens)`))
+      );
+    } catch {}
+  }
+}
+
+const benchTypeSelect = document.getElementById("bench-type");
+if (benchTypeSelect) {
+  benchTypeSelect.addEventListener("change", () => {
+    const kind = benchTypeSelect.value;
+    document.getElementById("bench-sweep-options").style.display = kind === "sweep" ? "grid" : "none";
+    document.getElementById("bench-concurrency-options").style.display = kind === "concurrency" ? "grid" : "none";
+  });
+}
 
 const btnTriggerBench = document.getElementById("btn-trigger-bench");
 if (btnTriggerBench) {
   btnTriggerBench.addEventListener("click", async () => {
-    if (!state.activeServerId) {
-      alert("Please select a running server to benchmark.");
+    const profileID = document.getElementById("bench-profile").value;
+    if (!profileID) {
+      alert("Please select a profile to test.");
       return;
     }
 
-    const s = state.servers.find(srv => srv.id === state.activeServerId);
-    if (!s) return;
-
-    const promptKey = document.getElementById("bench-prompt").value;
-    const repeats = parseInt(document.getElementById("bench-repeats").value) || 3;
+    const kind = document.getElementById("bench-type").value;
+    const workloadID = document.getElementById("bench-workload").value;
     
-    let prompt = "Explain quantum computing simply to a child";
-    if (promptKey === "quicksort") prompt = "Write quicksort implementation in Go";
-    if (promptKey === "poem") prompt = "Write a brief creative poem about a local LLM";
+    let sweepFlag = "";
+    let sweepValues = [];
+    if (kind === "sweep") {
+      sweepFlag = document.getElementById("bench-sweep-flag").value;
+      const valStr = document.getElementById("bench-sweep-values").value.trim();
+      sweepValues = valStr.split(",").map(v => v.trim()).filter(Boolean);
+      if (sweepValues.length === 0) {
+        alert("Please enter at least one value to sweep.");
+        return;
+      }
+    }
+
+    let concurrencyPlan = [];
+    if (kind === "concurrency") {
+      const valStr = document.getElementById("bench-concurrency-plan").value.trim();
+      concurrencyPlan = valStr.split(",").map(v => parseInt(v.trim())).filter(n => !isNaN(n));
+      if (concurrencyPlan.length === 0) {
+        concurrencyPlan = [1, 2, 4];
+      }
+    }
 
     const icon = btnTriggerBench.querySelector(".btn-icon-svg");
     if (icon) icon.classList.add("spin");
     const textNode = [...btnTriggerBench.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== "");
-    if (textNode) textNode.textContent = " Benchmarking...";
+    if (textNode) textNode.textContent = " Spawning Suite...";
     btnTriggerBench.disabled = true;
-    
+
     try {
-      alert("Triggering performance benchmark. This can take up to 2 minutes depending on parameters and hardware...");
+      alert("Performance benchmark suite triggered successfully! Fresh sandbox servers will be spawned sequentially cell-by-cell. You can monitor the history table.");
       await apiCall("/api/benchmarks", "POST", {
-        profile_id: s.profile_id,
-        prompt,
-        max_tokens: 128,
-        temperature: 0.2,
-        repeats,
-        warmups: 1
+        profile_id: profileID,
+        kind,
+        sweep_flag: sweepFlag,
+        sweep_values: sweepValues,
+        workload_id: workloadID,
+        concurrency_plan: concurrencyPlan,
+        repeats: 5,
+        warmups: 2
       });
-      alert("Benchmark Completed successfully!");
-      document.querySelector("[data-target=benchmarks]").click();
+      
+      // Auto-poll history after a short delay
+      setTimeout(loadBenchmarksHistory, 1500);
+      setInterval(loadBenchmarksHistory, 6000);
     } catch (err) {
       alert(`Benchmark execution failed: ${err.message}`);
     } finally {
       if (icon) icon.classList.remove("spin");
-      if (textNode) textNode.textContent = " Execute Performance Run";
+      if (textNode) textNode.textContent = " Execute Performance Suite";
       btnTriggerBench.disabled = false;
     }
   });
@@ -778,40 +828,97 @@ async function loadBenchmarksHistory() {
       return;
     }
 
+    // Auto-update latest completed recommendation card
+    const completed = state.benchmarks.filter(b => b.status === "completed" && b.recommendation);
+    const recBox = document.getElementById("bench-recommendation-box");
+    if (completed.length > 0 && recBox) {
+      recBox.style.display = "block";
+      document.getElementById("bench-recommendation-text").textContent = completed[completed.length - 1].recommendation;
+    } else if (recBox) {
+      recBox.style.display = "none";
+    }
+
     tbody.replaceChildren(
       ...state.benchmarks.map(b => {
         const p = state.profiles.find(prof => prof.id === b.profile_id);
-        const m = state.models.find(mod => mod.id === b.model_id);
+        const profName  = p ? p.name : "Profile";
 
-        const profName  = p ? p.name         : "Profile";
-        const modelName = m ? m.display_name  : "GGUF Model";
-        const speed     = b.result && b.result.avg_tokens_per_sec ? `${parseFloat(b.result.avg_tokens_per_sec).toFixed(2)} T/s` : "-";
-        const latency   = b.result && b.result.avg_latency_ms     ? `${parseFloat(b.result.avg_latency_ms).toFixed(0)}ms`       : "-";
-        const statusCls = b.status === "completed" ? "green" : "red";
+        let typeLabel = "Single-Shot";
+        if (b.kind === "sweep") typeLabel = `Sweep (${b.sweep_flag})`;
+        if (b.kind === "concurrency") typeLabel = "Concurrency Load";
+
+        let speed = "-";
+        let latency = "-";
+        if (b.cells && b.cells.length > 0) {
+          // Display optimal completed cell or first cell details
+          const first = b.cells[0];
+          speed = `${parseFloat(first.aggregates.tg_speed_mean || 0).toFixed(1)} t/s`;
+          latency = `${parseFloat(first.aggregates.e2e_p50 || 0).toFixed(0)}ms`;
+        }
 
         const deleteBtn = document.createElement("button");
         deleteBtn.className = "btn btn-sm btn-danger";
         deleteBtn.innerHTML = `<svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
-        deleteBtn.append(document.createTextNode(" Delete"));
-        deleteBtn.addEventListener("click", () => window.deleteBenchmarkRecord(b.id));
+        deleteBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          window.deleteBenchmarkRecord(b.id);
+        });
 
-        return h("tr", {},
+        const tr = h("tr", {style: "cursor:pointer;"},
           h("td", {}, h("code", {style: "font-size:0.8rem;"}, b.id.substring(6))),
           h("td", {}, h("strong", {}, profName)),
-          h("td", {}, h("span", {style: "font-size:0.8rem; color:var(--text-muted);"}, modelName)),
-          h("td", {}, h("span", {style: "font-size:0.8rem; font-style:italic;"}, `"${b.prompt.substring(0, 30)}..."`)),
+          h("td", {}, h("span", {class: "status-pill yellow", style: "font-size:0.75rem;"}, typeLabel)),
+          h("td", {}, h("span", {style: "font-size:0.8rem; font-style:italic;"}, b.workload_id || "custom")),
           h("td", {}, h("strong", {style: "color:var(--accent-pink);"}, speed)),
           h("td", {}, latency),
-          h("td", {}, h("span", {class: `status-pill ${statusCls}`}, b.status)),
+          h("td", {}, h("span", {class: `status-pill ${b.status === "completed" ? "green" : (b.status === "running" ? "yellow" : "red")}`}, b.status)),
           h("td", {}, formatDate(b.started_at)),
           h("td", {}, deleteBtn)
         );
+
+        tr.addEventListener("click", () => window.viewBenchmarkDetails(b.id));
+        return tr;
       })
     );
-  } catch {
+  } catch (err) {
     tbody.innerHTML = `<tr><td colspan="9" class="empty-state">Failed to load history metrics.</td></tr>`;
   }
 }
+
+window.viewBenchmarkDetails = function(runID) {
+  const b = state.benchmarks.find(run => run.id === runID);
+  if (!b) return;
+  
+  const frag = document.createDocumentFragment();
+  if (b.recommendation) {
+    frag.append(h("div", {
+      style: "padding:12px; margin-bottom:16px; background:rgba(16,163,127,0.08); border:1px solid rgba(16,163,127,0.2); border-radius:6px; font-size:0.85rem; font-weight:500; color:var(--text-main);"
+    }, b.recommendation));
+  }
+
+  const table = h("table", {class: "data-table", style: "width:100%;"},
+    h("thead", {},
+      h("tr", {},
+        h("th", {}, "Variant/Cell"),
+        h("th", {}, "Avg Speed (T/s)"),
+        h("th", {}, "Avg Latency (P50)"),
+        h("th", {}, "TTFT (P50)"),
+        h("th", {}, "Errors")
+      )
+    ),
+    h("tbody", {},
+      ...(b.cells || []).map(c => h("tr", {},
+        h("td", {}, h("strong", {}, c.label)),
+        h("td", {}, h("span", {style: "color:var(--accent-pink);"}, parseFloat(c.aggregates.tg_speed_mean || 0).toFixed(1) + " t/s")),
+        h("td", {}, parseFloat(c.aggregates.e2e_p50 || 0).toFixed(0) + "ms"),
+        h("td", {}, parseFloat(c.aggregates.ttft_p50 || 0).toFixed(0) + "ms"),
+        h("td", {}, parseFloat(c.aggregates.error_rate_percent || 0).toFixed(1) + "%")
+      ))
+    )
+  );
+  frag.append(table);
+  showModal(`Benchmark Suite Details: ${b.id.substring(6)}`, frag);
+};
 
 window.deleteBenchmarkRecord = async function(runID) {
   if (confirm("Are you sure you want to delete this benchmark record?")) {

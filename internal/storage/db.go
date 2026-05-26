@@ -132,6 +132,59 @@ type BenchmarkRun struct {
 	CompletedAt     string                 `json:"completed_at,omitempty"`
 	Status          string                 `json:"status"` // running, completed, failed
 	Error           string                 `json:"error,omitempty"`
+
+	// Redesigned Benchmark extensions
+	Kind            string                 `json:"kind,omitempty"`            // "single_shot" | "sweep" | "grid" | "concurrency" | "ab"
+	SweepFlag       string                 `json:"sweep_flag,omitempty"`      // e.g. "-b"
+	SweepValues     []string               `json:"sweep_values,omitempty"`    // values swept
+	WorkloadID      string                 `json:"workload_id,omitempty"`     // corpus ID
+	ConcurrencyPlan []int                  `json:"concurrency_plan,omitempty"`
+	Cells           []BenchmarkCell        `json:"cells,omitempty"`           // one per variant
+	Recommendation  string                 `json:"recommendation,omitempty"`  // human-readable text
+}
+
+type BenchmarkCell struct {
+	Label          string              `json:"label"`
+	FlagOverrides  map[string]string   `json:"flag_overrides"`
+	StartedAt      string              `json:"started_at"`
+	CompletedAt    string              `json:"completed_at"`
+	Status         string              `json:"status"`
+	Samples        []BenchmarkSample   `json:"samples"`
+	Aggregates     BenchmarkAggregates `json:"aggregates"`
+	PeakVRAMBytes  int64               `json:"peak_vram_bytes"`
+	IdleCPUPercent float64             `json:"idle_cpu_percent"`
+	Noisy          bool                `json:"noisy"`
+}
+
+type BenchmarkSample struct {
+	RequestIndex    int       `json:"request_index"`
+	PromptTokens    int       `json:"prompt_tokens"`
+	OutputTokens    int       `json:"output_tokens"`
+	TTFTMS          float64   `json:"ttft_ms"`
+	EndToEndMS      float64   `json:"end_to_end_ms"`
+	ITLMS           []float64 `json:"itl_ms"` // inter-token latencies
+	PromptPerSec    float64   `json:"prompt_per_sec"`
+	PredictedPerSec float64   `json:"predicted_per_sec"`
+	HTTPStatus      int       `json:"http_status"`
+	Error           string    `json:"error,omitempty"`
+}
+
+type BenchmarkAggregates struct {
+	TGSpeedMean      float64 `json:"tg_speed_mean"`
+	TGSpeedP50       float64 `json:"tg_speed_p50"`
+	TGSpeedP90       float64 `json:"tg_speed_p90"`
+	TGSpeedP99       float64 `json:"tg_speed_p99"`
+	TGSpeedStdDev    float64 `json:"tg_speed_std_dev"`
+	PPSpeedMean      float64 `json:"pp_speed_mean"`
+	PPSpeedP50       float64 `json:"pp_speed_p50"`
+	TTFTP50          float64 `json:"ttft_p50"`
+	TTFTP95          float64 `json:"ttft_p95"`
+	ITLP50           float64 `json:"itl_p50"`
+	ITLP95           float64 `json:"itl_p95"`
+	E2EP50           float64 `json:"e2e_p50"`
+	E2EP95           float64 `json:"e2e_p95"`
+	ThroughputTGS    float64 `json:"throughput_tgs"`
+	ErrorRatePercent float64 `json:"error_rate_percent"`
 }
 
 // DownloadJobHistory represents a completed or terminated HF download job record.
@@ -156,6 +209,12 @@ type DB struct {
 	benchmarks      map[string]BenchmarkRun
 	downloadHistory []DownloadJobHistory
 	nextSampleID    int
+}
+
+func (db *DB) GetDataDir() string {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return db.dataDir
 }
 
 // Open initializes and loads the JSON database from dataDir.

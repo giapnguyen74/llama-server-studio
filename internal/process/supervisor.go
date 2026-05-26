@@ -219,6 +219,169 @@ func (s *Supervisor) StartServer(profileID string, configBinPath string, portRan
 	return serverID, nil
 }
 
+// StartServerWithOverrides is identical to StartServer, but merges flag overrides into command arguments.
+func (s *Supervisor) StartServerWithOverrides(profileID string, configBinPath string, portRangeStart, portRangeEnd int, overrides map[string]string) (string, error) {
+	// --- Phase 1: Read-only DB lookups, no lock held ---
+	p, ok := s.db.GetProfile(profileID)
+	if !ok {
+		return "", errors.New("profile not found")
+	}
+	m, ok := s.db.GetModel(p.ModelID)
+	if !ok {
+		return "", errors.New("associated GGUF model not found in catalog")
+	}
+
+	host := p.DefaultHost
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	// Merge overrides into profile arguments
+	if len(overrides) > 0 {
+		var newArgs []string
+		used := make(map[string]bool)
+
+		// Replace existing values in p.Args
+		for i := 0; i < len(p.Args); i++ {
+			arg := p.Args[i]
+			if val, ok := overrides[arg]; ok {
+				newArgs = append(newArgs, arg)
+				if val != "" {
+					newArgs = append(newArgs, val)
+				}
+				used[arg] = true
+				// If the original flag had a value, skip it
+				if i+1 < len(p.Args) && !strings.HasPrefix(p.Args[i+1], "-") {
+					i++
+				}
+			} else {
+				newArgs = append(newArgs, arg)
+			}
+		}
+
+		// Append any remaining overrides
+		for flag, val := range overrides {
+			if !used[flag] {
+				newArgs = append(newArgs, flag)
+				if val != "" {
+					newArgs = append(newArgs, val)
+				}
+			}
+		}
+		p.Args = newArgs
+	}
+
+	// --- Phase 2: Short critical section for port allocation + reservation ---
+	serverID := fmt.Sprintf("srv_%d", time.Now().UnixNano())
+	var port int
+	var err error
+
+	s.mu.Lock()
+	// Prevent duplicate starts for the same profile
+	for _, proc := range s.active {
+		if existing, ok := s.db.GetServer(proc.serverID); ok && existing.ProfileID == profileID {
+			s.mu.Unlock()
+			return "", fmt.Errorf("a server is already active for this profile (ID: %s)", proc.serverID)
+		}
+	}
+
+	if p.DefaultPortPolicy == "fixed" {
+		port = p.FixedPort
+		if !s.isPortAvailableLocked(host, port) {
+			s.mu.Unlock()
+			return "", fmt.Errorf("configured fixed port %d is already in use by another application", port)
+		}
+	} else {
+		port, err = s.allocatePortLocked(host, portRangeStart, portRangeEnd)
+		if err != nil {
+			s.mu.Unlock()
+			return "", err
+		}
+	}
+
+	// Reserve port/process slot to avoid races
+	proc := &activeProcess{
+		serverID: serverID,
+		port:     port,
+		updates:  make(chan srvUpdate, 32),
+	}
+	s.active[serverID] = proc
+	s.mu.Unlock()
+
+	// --- Phase 3: Exec and filesystem operations, no lock held ---
+	built, err := profiles.BuildCommand(&p, &m, configBinPath, port)
+	if err != nil {
+		s.discardReservation(serverID)
+		return "", err
+	}
+
+	logPath := s.db.GetLogFilePath(serverID)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		s.discardReservation(serverID)
+		return "", fmt.Errorf("failed to create log file: %w", err)
+	}
+
+	_, _ = logFile.WriteString("=== LLAMA SERVER STUDIO EXECUTION (BENCHMARK SWEEP) ===\n")
+	_, _ = logFile.WriteString(fmt.Sprintf("Timestamp: %s\n", time.Now().Format(time.RFC3339)))
+	_, _ = logFile.WriteString(fmt.Sprintf("Command: %s\n", built.CmdString))
+	_, _ = logFile.WriteString("========================================================\n\n")
+
+	cmd := exec.Command(built.Executable, built.Args...)
+	if built.WorkDir != "" {
+		cmd.Dir = built.WorkDir
+	}
+	if len(built.Env) > 0 {
+		cmd.Env = append(os.Environ(), built.Env...)
+	}
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.SysProcAttr = newSysProcAttr() // pgid/pdeathsig integration
+
+	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		s.discardReservation(serverID)
+		return "", fmt.Errorf("failed to execute llama-server: %w", err)
+	}
+
+	// --- Phase 4: Promote active process with cmd and logFile handle ---
+	s.mu.Lock()
+	proc.cmd = cmd
+	proc.logFile = logFile
+	s.mu.Unlock()
+
+	nowStr := time.Now().Format(time.RFC3339)
+	srvRecord := storage.Server{
+		ID:              serverID,
+		InstanceID:      serverID,
+		ProfileID:       p.ID,
+		ProfileIDSpec:   p.ID,
+		ModelID:         m.ID,
+		PID:             cmd.Process.Pid,
+		Host:            host,
+		Port:            port,
+		BaseURL:         fmt.Sprintf("http://%s:%d", host, port),
+		Status:          "starting",
+		StartedAt:       nowStr,
+		StartedAtSpec:   nowStr,
+		ProfileSnapshot: p,
+		Argv:            append([]string{built.Executable}, built.Args...),
+		LogPath:         logPath,
+		Health:          storage.ServerHealth{LastCheckAt: "", State: "unknown"},
+		CreatedAt:       nowStr,
+		UpdatedAt:       nowStr,
+	}
+	_ = s.db.SaveServer(srvRecord)
+
+	// Serialize DB updates through one goroutine
+	go s.serializeDBUpdates(proc)
+
+	// Launch background monitor
+	go s.monitorProcess(proc, srvRecord)
+
+	return serverID, nil
+}
+
 // Reattach registers an orphan process from a previous studio run.
 func (s *Supervisor) Reattach(serverID string) error {
 	srv, ok := s.db.GetServer(serverID)
