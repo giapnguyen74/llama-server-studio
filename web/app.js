@@ -257,12 +257,9 @@ async function pollListOnce() {
         const samples = await apiCall(`/api/servers/${srv.id}/stats`);
         if (samples.length > 0) {
           const last = samples[samples.length - 1];
-          const hasMetrics = Array.isArray(srv.profile_snapshot?.args) &&
-                             srv.profile_snapshot.args.includes("--metrics");
+          const tps = last.generation_tokens_per_second || last.tokens_per_second || 0;
           statsCache[srv.profile_id] = {
-            cpu:    parseFloat(last.cpu_percent || 0).toFixed(1) + "%",
-            mem:    (last.memory_rss_bytes / 1024 / 1024 / 1024).toFixed(2) + " GB",
-            genTps: hasMetrics ? (last.generation_tokens_per_second || 0).toFixed(1) + " t/s" : "—",
+            genTps: tps > 0 ? tps.toFixed(1) + " t/s" : "0.0 t/s",
           };
         }
       } catch {}
@@ -276,7 +273,7 @@ function renderLifecycleList() {
   if (!lcListBody) return;
   if (state.profiles.length === 0) {
     lcListBody.replaceChildren(
-      h("tr", {}, h("td", {colspan: "8", class: "loading-state"}, "No profiles yet — create one in the Profiles tab."))
+      h("tr", {}, h("td", {colspan: "6", class: "loading-state"}, "No profiles yet — create one in the Profiles tab."))
     );
     return;
   }
@@ -324,8 +321,6 @@ function renderLifecycleList() {
         h("td", {class: "cell-model"}, modelLabel),
         h("td", {class: "cell-metric"}, srv ? String(srv.pid || "—") : "—"),
         h("td", {}, h("span", {class: `status-pill ${statusClass(status)}`}, status)),
-        h("td", {class: "cell-metric"}, sc.cpu    || "—"),
-        h("td", {class: "cell-metric"}, sc.mem    || "—"),
         h("td", {class: "cell-metric"}, sc.genTps || "—"),
         h("td", {}, actions)
       );
@@ -398,8 +393,6 @@ function enterDetailState(profileID, srv) {
     document.getElementById("srv-pid-val").textContent      = "—";
     document.getElementById("srv-port-val").textContent     = p?.port || "—";
     document.getElementById("srv-uptime-val").textContent   = "—";
-    document.getElementById("realtime-cpu").textContent     = "—";
-    document.getElementById("realtime-mem").textContent     = "—";
     BLANK_METRICS.forEach(id => { document.getElementById(id).textContent = "—"; });
 
     if (state.consoleOpen) closeConsole();
@@ -562,9 +555,6 @@ async function pollServerTelemetry(serverID) {
 
     const current = samples[samples.length - 1];
 
-    document.getElementById("realtime-cpu").textContent = parseFloat(current.cpu_percent || 0).toFixed(1) + "%";
-    document.getElementById("realtime-mem").textContent = (parseFloat(current.memory_rss_bytes || 0) / 1024 / 1024 / 1024).toFixed(2) + " GB";
-
     const srv = state.servers.find(s => s.id === serverID);
     const hasMetrics = Array.isArray(srv?.profile_snapshot?.args) && srv.profile_snapshot.args.includes("--metrics");
 
@@ -576,9 +566,20 @@ async function pollServerTelemetry(serverID) {
       document.getElementById("metric-queued-reqs").textContent    = current.requests_deferred || "0";
 
       // Render KV Cache occupancy visually
-      const kvPercent = current.ctx_size_observed && current.slot_count
-        ? ((current.requests_processing / (current.slot_count * 1024)) * 100).toFixed(1)
-        : "0.0";
+      let kvPercent = "0.0";
+      if (current.ctx_size_observed) {
+        let ctxLimit = 8192;
+        if (srv?.profile_snapshot?.args) {
+          const args = srv.profile_snapshot.args;
+          for (let i = 0; i < args.length; i++) {
+            if (args[i] === "-c" && i + 1 < args.length) {
+              const val = parseInt(args[i+1]);
+              if (!isNaN(val)) ctxLimit = val;
+            }
+          }
+        }
+        kvPercent = ((current.ctx_size_observed / ctxLimit) * 100).toFixed(1);
+      }
       document.getElementById("metric-kv-ratio").textContent = kvPercent + "%";
     }
 

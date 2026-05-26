@@ -1,20 +1,9 @@
 import { h, state, apiCall, formatDate } from "./state.js";
 
 export async function loadDashboardSystemMetrics() {
-  try {
-    const metrics = await apiCall("/api/system/metrics");
-    const cpuVal = document.getElementById("dash-instances-cpu");
-    const memVal = document.getElementById("dash-instances-mem");
-    if (cpuVal) {
-      cpuVal.textContent = parseFloat(metrics.instances_cpu_sum || 0).toFixed(1) + "%";
-    }
-    if (memVal) {
-      memVal.textContent = (parseFloat(metrics.instances_mem_sum || 0) / 1024 / 1024 / 1024).toFixed(2) + " GB";
-    }
-  } catch (err) {
-    console.error("Failed to load dashboard system metrics", err);
-  }
+  // Host system CPU/Mem monitoring removed
 }
+
 
 export function loadDashboard() {
   loadDashboardSystemMetrics();

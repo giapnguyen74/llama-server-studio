@@ -125,17 +125,8 @@
             <p class="stat-val" id="dash-crashed-count">0</p>
             <span class="stat-desc">unexpected exits in current session</span>
           </div>
-          <div class="stat-card cyan-glow">
-            <h3>Instances CPU Load</h3>
-            <p class="stat-val" id="dash-instances-cpu">0.0%</p>
-            <span class="stat-desc">combined CPU load of child processes</span>
-          </div>
-          <div class="stat-card purple-glow">
-            <h3>Instances RSS Memory</h3>
-            <p class="stat-val" id="dash-instances-mem">0.00 GB</p>
-            <span class="stat-desc">combined RAM memory footprint</span>
-          </div>
         </div>
+
 
         <div class="dashboard-columns">
           <div class="dash-column-left">
@@ -635,14 +626,12 @@
                   <th>Model</th>
                   <th>PID</th>
                   <th>Status</th>
-                  <th>CPU</th>
-                  <th>Mem</th>
                   <th>Gen tok/s</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="lifecycle-list-body">
-                <tr><td colspan="8" class="loading-state">Loading profiles…</td></tr>
+                <tr><td colspan="6" class="loading-state">Loading profiles…</td></tr>
               </tbody>
             </table>
           </div>
@@ -695,14 +684,6 @@
             <div class="telemetry-item">
               <span class="tel-label">Uptime</span>
               <span class="tel-val" id="srv-uptime-val">—</span>
-            </div>
-            <div class="telemetry-item">
-              <span class="tel-label">CPU</span>
-              <span class="tel-val" id="realtime-cpu">—</span>
-            </div>
-            <div class="telemetry-item">
-              <span class="tel-label">RSS Mem</span>
-              <span class="tel-val" id="realtime-mem">—</span>
             </div>
           </div>
 
@@ -879,7 +860,7 @@
           <p>Configure the public API gateway listener to route external client requests to your model profiles.</p>
         </header>
 
-        <div class="glass-card" style="max-width: 600px; padding: 24px;">
+        <div class="glass-card" style="padding: 24px;">
           <h3 style="margin-bottom: 8px;">Gateway API Token</h3>
           <p class="field-hint" style="margin-bottom: 20px;">
             When a token is configured, all requests sent to the public Gateway proxy routing endpoints (e.g. <code>/v1/chat/completions</code>) must supply a valid HTTP Bearer token.
@@ -916,7 +897,7 @@
         </div>
 
         <!-- Default Model Picker Card -->
-        <div class="glass-card" style="max-width: 600px; padding: 24px; margin-top: 24px;">
+        <div class="glass-card" style="padding: 24px; margin-top: 24px;">
           <h3 style="margin-bottom: 8px;">Default Model</h3>
           <p class="field-hint" style="margin-bottom: 20px;">
             Requests sent to standard public gateway endpoints (e.g. <code>/v1/chat/completions</code>) without a <code>"model"</code> parameter will be auto-routed to this default profile.
@@ -941,7 +922,7 @@
         </div>
 
         <!-- Quick Client Integration Card -->
-        <div class="glass-card" style="max-width: 600px; padding: 24px; margin-top: 24px;" id="sec-integration-card">
+        <div class="glass-card" style="padding: 24px; margin-top: 24px;" id="sec-integration-card">
           <h3 style="margin-bottom: 12px;">Client Integration Examples</h3>
           <p class="field-hint" style="margin-bottom: 16px;">
             Call the standard public endpoints with a <code>"model"</code> matching the profile ID:

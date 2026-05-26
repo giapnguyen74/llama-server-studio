@@ -78,6 +78,9 @@ func StartMonitor(ctx context.Context, db *storage.DB, s *process.Supervisor) {
 				// 4. Calculate token throughput rates dynamically via differences
 				var promptRate, generationRate float64
 				
+				directPromptRate := metrics["llamacpp:prompt_tokens_seconds"]
+				directGenRate := metrics["llamacpp:predicted_tokens_seconds"]
+
 				promptTokensTotal := int64(metrics["llama_prompt_tokens_total"])
 				if promptTokensTotal == 0 {
 					promptTokensTotal = int64(metrics["prompt_tokens_total"])
@@ -110,11 +113,22 @@ func StartMonitor(ctx context.Context, db *storage.DB, s *process.Supervisor) {
 				}
 				cacheMu.Unlock()
 
+				// If direct llamacpp gauges are present, prefer them
+				if directPromptRate > 0 {
+					promptRate = directPromptRate
+				}
+				if directGenRate > 0 {
+					generationRate = directGenRate
+				}
+
 				// Calculate observed context size
 				var ctxSizeObserved int
 				if srv.ProfileSnapshot.Args != nil {
 					// Guess or read from metrics KV cache usage ratio if provided
-					ratio := metrics["llama_kv_cache_usage_ratio"]
+					ratio := metrics["llamacpp:kv_cache_usage_ratio"]
+					if ratio == 0 {
+						ratio = metrics["llama_kv_cache_usage_ratio"]
+					}
 					if ratio > 0 {
 						// Multiply by simple ctx limit or simple fallback
 						ctxLimit := 8192
