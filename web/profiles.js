@@ -585,17 +585,16 @@ export function updateVRAMEstimate() {
   }
 
   const bpw       = QUANT_BPW[model.quantization] || 0.57;
-  const paramsB   = model.size_bytes / (bpw * 1e9);               // estimated params in billions
+  const paramsB   = model.size_bytes / (bpw * 1e9);
   const ctxSize   = parseInt(ctxSel) || model.context_length || 4096;
 
-  // Fixed cost: weights + CUDA overhead + scratchpad
   const weightsGb  = paramsB * bpw;
   const overheadGb = 0.55 + 0.08 * paramsB;
   const baseGb     = weightsGb + overheadGb;
 
-  const L    = model.block_count      || Math.round(paramsB * 4.5); // fallback: ~4.5 layers/B
-  const d    = model.embedding_length || Math.round(paramsB * 512); // fallback: ~512 per B
-  const g    = 4;  // GQA grouping factor (most modern models)
+  const L    = model.block_count      || Math.round(paramsB * 4.5);
+  const d    = model.embedding_length || Math.round(paramsB * 512);
+  const g    = 4;
   const kvGb = (1 * ctxSize * 2 * L * (d / g) * 2) / 1e9;
 
   const totalGb = baseGb + kvGb;
@@ -604,11 +603,30 @@ export function updateVRAMEstimate() {
   const fmt = v => v.toFixed(2);
   document.getElementById("vram-total").textContent = `~${fmt(totalGb)} GB`;
   document.getElementById("vram-breakdown").textContent =
-    `${fmt(weightsGb)} weights + ${fmt(overheadGb)} overhead + ${fmt(kvGb)} KV·${ctxSize.toLocaleString()}ctx · ~${Math.round(paramsB)}B params`;
+    `${fmt(weightsGb)} weights + ${fmt(overheadGb)} overhead + ${fmt(kvGb)} KV · ${ctxSize.toLocaleString()} ctx · ~${Math.round(paramsB)}B params`;
+
   const qbadge = document.getElementById("vram-quant-badge");
   if (qbadge) {
     qbadge.textContent = model.quantization || "Unknown";
     qbadge.style.display = model.quantization ? "" : "none";
+  }
+
+  // Update hero bar: pick the smallest sensible VRAM tier >= totalGb
+  const tiers = [4, 6, 8, 12, 16, 24, 32, 48, 80, 192];
+  const cap   = tiers.find(t => t >= totalGb) || Math.ceil(totalGb / 8) * 8;
+  const pct   = Math.min(100, (totalGb / cap) * 100);
+
+  const barFill = document.getElementById("vram-bar-fill");
+  const barCap  = document.getElementById("vram-bar-cap");
+  if (barCap)  barCap.textContent = `${cap} GB`;
+  if (barFill) {
+    barFill.style.width = `${pct.toFixed(1)}%`;
+    // Green → yellow → red colour ramp
+    const color = pct < 60 ? "var(--accent-green)"
+                : pct < 85 ? "var(--accent-yellow)"
+                : "var(--accent-red)";
+    barFill.style.background = color;
+    barFill.style.boxShadow  = `0 0 8px ${color}`;
   }
 }
 

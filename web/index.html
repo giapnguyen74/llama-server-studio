@@ -293,6 +293,32 @@
             </div>
           </div>
 
+          <!-- ── VRAM Estimate Hero Card ─────────────────────────────────────── -->
+          <div id="vram-estimate-card" style="display:none;" class="vram-hero-card">
+            <div class="vram-hero-inner">
+              <div class="vram-hero-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path><line x1="6" y1="12" x2="6" y2="12"></line><line x1="10" y1="12" x2="10" y2="12"></line><line x1="14" y1="12" x2="14" y2="12"></line></svg>
+              </div>
+              <div class="vram-hero-main">
+                <div class="vram-hero-label">VRAM Required</div>
+                <div class="vram-hero-value">
+                  <span id="vram-total">—</span>
+                  <span id="vram-quant-badge" class="status-pill yellow" style="font-size:0.72rem; margin-left:8px;"></span>
+                </div>
+                <div id="vram-breakdown" class="vram-hero-breakdown"></div>
+              </div>
+              <div class="vram-hero-bar-col">
+                <div class="vram-bar-track">
+                  <div id="vram-bar-fill" class="vram-bar-fill"></div>
+                </div>
+                <div class="vram-bar-labels">
+                  <span>0 GB</span>
+                  <span id="vram-bar-cap">24 GB</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Editor form -->
           <div class="profile-editor glass-card" id="profile-editor-container">
             <form id="profile-form">
@@ -326,17 +352,6 @@
               <div class="form-group">
                 <label for="profile-desc">Notes &amp; Description</label>
                 <textarea id="profile-desc" rows="2" placeholder="Describe hardware context, quant comparison logs..."></textarea>
-              </div>
-
-              <!-- VRAM Estimate Banner -->
-              <div id="vram-estimate-card" style="display:none; margin-bottom:18px; padding:12px 16px; border-radius:var(--radius-lg); border:1px solid var(--border-soft); background:var(--background-muted);">
-                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path></svg>
-                  <span style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-dim);">VRAM Estimate</span>
-                  <span id="vram-total" style="font-size:1.05rem; font-weight:700; color:var(--accent-cyan);">—</span>
-                  <span id="vram-quant-badge" class="status-pill yellow" style="font-size:0.72rem; margin-left:2px;"></span>
-                  <span id="vram-breakdown" style="font-size:0.77rem; color:var(--text-dim); margin-left:4px;"></span>
-                </div>
               </div>
 
               <div class="form-tabs">
