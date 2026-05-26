@@ -53,6 +53,13 @@ func NewSupervisor(db *storage.DB, cfg *config.Config) *Supervisor {
 	}
 }
 
+func (s *Supervisor) GetLlamaServerBin() string {
+	if s == nil || s.cfg == nil {
+		return ""
+	}
+	return s.cfg.LlamaServerBin
+}
+
 // Expose thread-safe IsPortAvailable for external callers.
 func (s *Supervisor) IsPortAvailable(host string, port int) bool {
 	s.mu.Lock()

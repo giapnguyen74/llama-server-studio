@@ -140,7 +140,7 @@ func (br *Runner) RunBenchmark(
 	defer func() {
 		if origActive {
 			log.Printf("[BENCHMARK] Restoring original server for profile %s", profileID)
-			_, _ = br.supervisor.StartServer(profileID, "", 41000, 41999)
+			_, _ = br.supervisor.StartServer(profileID, br.supervisor.GetLlamaServerBin(), 41000, 41999)
 		}
 	}()
 
@@ -212,7 +212,7 @@ func (br *Runner) executeCell(
 	}
 
 	// 1. Spawn temporary server with overrides
-	srvID, err := br.supervisor.StartServerWithOverrides(profileID, "", 41000, 41999, overrides)
+	srvID, err := br.supervisor.StartServerWithOverrides(profileID, br.supervisor.GetLlamaServerBin(), 41000, 41999, overrides)
 	if err != nil {
 		log.Printf("[BENCHMARK] Failed to start variant server for %q: %v", label, err)
 		return cell, fmt.Errorf("failed to start sweep server: %w", err)
@@ -288,7 +288,7 @@ func (br *Runner) executeConcurrencyCell(
 		Samples:       []storage.BenchmarkSample{},
 	}
 
-	srvID, err := br.supervisor.StartServer(profileID, "", 41000, 41999)
+	srvID, err := br.supervisor.StartServer(profileID, br.supervisor.GetLlamaServerBin(), 41000, 41999)
 	if err != nil {
 		log.Printf("[BENCHMARK] Failed to start concurrency server for %q: %v", label, err)
 		return cell, fmt.Errorf("failed to start concurrency server: %w", err)
