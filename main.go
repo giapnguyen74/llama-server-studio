@@ -152,7 +152,7 @@ func main() {
 
 	// B. Validate models scan directories
 	if len(cfg.ModelsDirs) == 0 {
-		log.Fatalf("CRITICAL ERROR: No model scan directories configured. Please specify at least one scan directory using the '--models-dir' flag or define 'models_dirs' in your config.json file.")
+		cfg.ModelsDirs = []string{filepath.Join(cfg.DataDir, "models")}
 	}
 
 	validDirCount := 0

@@ -130,22 +130,21 @@ func (c *Config) HasGatewayToken() bool {
 // DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
-
-	// Default HF cache dir
+	dataDir := filepath.Join(home, ".llama-server-studio")
 	hfCache := filepath.Join(home, ".cache", "huggingface", "hub")
 
 	return &Config{
 		Listen:           "127.0.0.1:3100",
 		LlamaServerBin:   "",
 		LlamaBinDir:      "",
-		ModelsDirs:       []string{filepath.Join(home, "models")},
+		ModelsDirs:       []string{filepath.Join(dataDir, "models")},
 		ScanHFCache:      true,
 		HFCacheDirs:      []string{hfCache},
 		PortRangeStart:   41000,
 		PortRangeEnd:     41999,
 		AdminToken:       "",
 		AllowInsecureLAN: false,
-		DataDir:          filepath.Join(home, ".llama-server-studio"),
+		DataDir:          dataDir,
 		GatewayToken:     "",
 		AllowedOrigins:   []string{},
 	}

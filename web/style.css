@@ -385,12 +385,7 @@ pre, code, textarea.code-font, .terminal-body {
   font-weight: 500;
 }
 
-.empty-state::before {
-  content: "🫙";
-  font-size: 2.5rem;
-  margin-bottom: 12px;
-  opacity: 0.5;
-}
+
 
 .loading-state {
   text-align: center;
