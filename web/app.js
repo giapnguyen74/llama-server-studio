@@ -278,8 +278,10 @@ function renderLifecycleList() {
     return;
   }
 
+  const sortedProfiles = [...state.profiles].sort((a, b) => a.name.localeCompare(b.name));
+
   lcListBody.replaceChildren(
-    ...state.profiles.map(p => {
+    ...sortedProfiles.map(p => {
       const srv    = state.servers.find(s => s.profile_id === p.id && s.status !== "stopped");
       const status = srv ? srv.status : "stopped";
       const sc     = statsCache[p.id] || {};
@@ -366,10 +368,6 @@ window.openProfileDetail = function(profileID) {
 
   document.getElementById("detail-profile-name").textContent = p ? p.name : profileID;
   document.getElementById("detail-model-name").textContent   = m ? m.display_name : "";
-
-  const gwPort = parseInt(window.location.port || "3100") + 1;
-  document.getElementById("stable-route-url").textContent =
-    `${window.location.protocol}//${window.location.hostname}:${gwPort}/profiles/${profileID}/v1/completions`;
 
   const srv = state.servers.find(s => s.profile_id === profileID && s.status !== "stopped");
   enterDetailState(profileID, srv || null);
@@ -851,7 +849,7 @@ async function loadSecurityView() {
     state.profiles.forEach(p => {
       const opt = document.createElement("option");
       opt.value = p.id;
-      opt.textContent = `${p.name} (${p.id})`;
+      opt.textContent = p.name;
       select.appendChild(opt);
     });
     select.value = state.settings.gateway_default_model || "";
@@ -866,7 +864,7 @@ async function loadSecurityView() {
   const activeProf = state.profiles.find(p => p.id === activeId);
 
   if (activeProf) {
-    if (activeLabel) activeLabel.textContent = `${activeProf.name} (${activeId})`;
+    if (activeLabel) activeLabel.textContent = activeProf.name;
 
     const runningServer = state.servers.find(s => s.profile_id === activeId && (s.status === "healthy" || s.status === "ready" || s.status === "starting"));
     const isRunning = !!runningServer;
@@ -1046,7 +1044,7 @@ if (btnSaveGatewayDefault) {
       if (activeLabel) {
         const activeId = state.settings.gateway_default_model;
         const activeProf = state.profiles.find(p => p.id === activeId);
-        activeLabel.textContent = activeProf ? `${activeProf.name} (${activeId})` : "None (Required in payload)";
+        activeLabel.textContent = activeProf ? activeProf.name : "None (Required in payload)";
       }
       alert("Gateway default model updated successfully.");
     } catch (err) {
