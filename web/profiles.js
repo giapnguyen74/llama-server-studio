@@ -50,6 +50,31 @@ export function applyModelDefaults(modelId) {
     nglInput.value = "all";
   }
 
+  const mmContainer = document.getElementById("simple-multimodal-container");
+  const mmEnable = document.getElementById("simple-mmproj-enable");
+  const mmDropdownGroup = document.getElementById("simple-mmproj-dropdown-group");
+  const mmSelect = document.getElementById("simple-mmproj-select");
+
+  if (mmContainer && mmEnable && mmDropdownGroup && mmSelect) {
+    if (model.mmproj_candidates && model.mmproj_candidates.length > 0) {
+      mmContainer.style.display = "block";
+      mmSelect.innerHTML = "";
+      model.mmproj_candidates.forEach(path => {
+        const opt = document.createElement("option");
+        opt.value = path;
+        opt.textContent = path.split('/').pop().split('\\').pop();
+        mmSelect.appendChild(opt);
+      });
+      mmEnable.checked = false;
+      mmDropdownGroup.style.display = "none";
+      mmSelect.selectedIndex = 0;
+    } else {
+      mmContainer.style.display = "none";
+      mmEnable.checked = false;
+      mmDropdownGroup.style.display = "none";
+    }
+  }
+
   updateCLIPreview();
   updateVRAMEstimate();
 }
@@ -64,6 +89,29 @@ if (modelSelectElem) {
 const simpleCtxElem = document.getElementById("simple-ctx");
 if (simpleCtxElem) {
   simpleCtxElem.addEventListener("change", updateVRAMEstimate);
+}
+
+const simpleMMProjEnable = document.getElementById("simple-mmproj-enable");
+const simpleMMProjDropdownGroup = document.getElementById("simple-mmproj-dropdown-group");
+const simpleMMProjSelect = document.getElementById("simple-mmproj-select");
+
+if (simpleMMProjEnable) {
+  simpleMMProjEnable.addEventListener("change", (e) => {
+    if (e.target.checked) {
+      if (simpleMMProjDropdownGroup) simpleMMProjDropdownGroup.style.display = "block";
+    } else {
+      if (simpleMMProjDropdownGroup) simpleMMProjDropdownGroup.style.display = "none";
+    }
+    updateCLIPreview();
+    updateVRAMEstimate();
+  });
+}
+
+if (simpleMMProjSelect) {
+  simpleMMProjSelect.addEventListener("change", () => {
+    updateCLIPreview();
+    updateVRAMEstimate();
+  });
 }
 
 // Presets Click Binding
@@ -103,6 +151,13 @@ export function applyPreset(name) {
   document.getElementById("adv-workdir").value = "";
   document.getElementById("adv-host").value = "";
   document.getElementById("adv-args").value = "";
+
+  const mmContainer = document.getElementById("simple-multimodal-container");
+  const mmEnable = document.getElementById("simple-mmproj-enable");
+  const mmDropdownGroup = document.getElementById("simple-mmproj-dropdown-group");
+  if (mmContainer) mmContainer.style.display = "none";
+  if (mmEnable) mmEnable.checked = false;
+  if (mmDropdownGroup) mmDropdownGroup.style.display = "none";
 
   if (name === "balanced") {
     document.getElementById("simple-ctx").value = "8192";
@@ -366,18 +421,20 @@ export function selectProfile(profileID) {
   let lora = "", specDraft = "", logFile = "";
   let logVerbose = false, diagPerf = true;
   let cpuMoe = false, kvUnified = false;
+  let mmprojPath = "";
 
   const parsedFlags = [
     "-c", "-ngl", "-t", "-b", "-np", "-m", "--model", "--host", "--port", "-p",
     "--device", "-sm", "-ts", "-mg", "--flash-attn", "--no-flash-attn", 
     "--mmap", "--no-mmap", "--mlock", "--no-cache-prompt", "--numa",
     "--lora", "--model-draft", "--log-file", "--verbose", "-v", "--log-verbose",
-    "--perf", "--no-perf", "--cpu-moe", "--kv-unified", "-kvu"
+    "--perf", "--no-perf", "--cpu-moe", "--kv-unified", "-kvu", "--mmproj"
   ];
 
   const flagsWithArgs = [
     "-c", "-ngl", "-t", "-b", "-np", "-m", "--model", "--host", "--port", "-p",
-    "--device", "-sm", "-ts", "-mg", "--numa", "--lora", "--model-draft", "--log-file"
+    "--device", "-sm", "-ts", "-mg", "--numa", "--lora", "--model-draft", "--log-file",
+    "--mmproj"
   ];
 
   const advArr = [];
@@ -401,6 +458,7 @@ export function selectProfile(profileID) {
     else if (args[i] === "--no-perf") { diagPerf = false; }
     else if (args[i] === "--cpu-moe") { cpuMoe = true; }
     else if (args[i] === "--kv-unified" || args[i] === "-kvu") { kvUnified = true; }
+    else if (args[i] === "--mmproj" && i + 1 < args.length) { mmprojPath = args[i+1]; i++; }
     else if (parsedFlags.includes(args[i])) {
       if (flagsWithArgs.includes(args[i])) {
         i++;
@@ -426,6 +484,44 @@ export function selectProfile(profileID) {
   document.getElementById("adv-log-file").value = logFile;
   document.getElementById("adv-log-verbose").checked = logVerbose;
   document.getElementById("adv-diag-perf").checked = diagPerf;
+
+  const mmContainer = document.getElementById("simple-multimodal-container");
+  const mmEnable = document.getElementById("simple-mmproj-enable");
+  const mmDropdownGroup = document.getElementById("simple-mmproj-dropdown-group");
+  const mmSelect = document.getElementById("simple-mmproj-select");
+
+  if (mmContainer && mmEnable && mmDropdownGroup && mmSelect) {
+    if (m && m.mmproj_candidates && m.mmproj_candidates.length > 0) {
+      mmContainer.style.display = "block";
+      mmSelect.innerHTML = "";
+      m.mmproj_candidates.forEach(path => {
+        const opt = document.createElement("option");
+        opt.value = path;
+        opt.textContent = path.split('/').pop().split('\\').pop();
+        mmSelect.appendChild(opt);
+      });
+
+      if (mmprojPath) {
+        mmEnable.checked = true;
+        mmDropdownGroup.style.display = "block";
+        if (!m.mmproj_candidates.includes(mmprojPath)) {
+          const opt = document.createElement("option");
+          opt.value = mmprojPath;
+          opt.textContent = `${mmprojPath.split('/').pop().split('\\').pop()} (custom)`;
+          mmSelect.appendChild(opt);
+        }
+        mmSelect.value = mmprojPath;
+      } else {
+        mmEnable.checked = false;
+        mmDropdownGroup.style.display = "none";
+        mmSelect.selectedIndex = 0;
+      }
+    } else {
+      mmContainer.style.display = "none";
+      mmEnable.checked = false;
+      mmDropdownGroup.style.display = "none";
+    }
+  }
 
   document.getElementById("adv-args").value = advArr.length > 0 ? JSON.stringify(advArr) : "";
   document.getElementById("adv-workdir").value = p.working_dir || "";
@@ -530,6 +626,12 @@ export function generateCommandArgs() {
     builtArgs.push("--no-perf");
   }
 
+  const mmEnable = document.getElementById("simple-mmproj-enable");
+  const mmSelect = document.getElementById("simple-mmproj-select");
+  if (mmEnable && mmEnable.checked && mmSelect && mmSelect.value) {
+    builtArgs.push("--mmproj", mmSelect.value);
+  }
+
   const advStr = document.getElementById("adv-args").value.trim();
   if (advStr) {
     try {
@@ -602,13 +704,33 @@ export function updateVRAMEstimate() {
   const g    = 4;
   const kvGb = (1 * ctxSize * 2 * L * (d / g) * 2) / 1e9;
 
-  const totalGb = baseGb + kvGb;
+  let mmprojGb = 0;
+  const mmEnable = document.getElementById("simple-mmproj-enable");
+  const mmSelect = document.getElementById("simple-mmproj-select");
+  if (mmEnable && mmEnable.checked && mmSelect && mmSelect.value) {
+    const selectedPath = mmSelect.value;
+    const idx = model.mmproj_candidates ? model.mmproj_candidates.indexOf(selectedPath) : -1;
+    if (idx !== -1 && model.mmproj_sizes_bytes && model.mmproj_sizes_bytes[idx]) {
+      const sizeBytes = model.mmproj_sizes_bytes[idx];
+      mmprojGb = (sizeBytes / (1024 * 1024 * 1024)) * 1.05;
+    } else {
+      mmprojGb = 1.0; // standard fallback
+    }
+  }
+
+  const totalGb = baseGb + kvGb + mmprojGb;
 
   card.style.display = "";
   const fmt = v => v.toFixed(2);
   document.getElementById("vram-total").textContent = `~${fmt(totalGb)} GB`;
-  document.getElementById("vram-breakdown").textContent =
-    `${fmt(weightsGb)} weights + ${fmt(overheadGb)} overhead + ${fmt(kvGb)} KV · ${ctxSize.toLocaleString()} ctx · ~${Math.round(paramsB)}B params`;
+  
+  let breakdown = `${fmt(weightsGb)} weights + ${fmt(overheadGb)} overhead + ${fmt(kvGb)} KV`;
+  if (mmprojGb > 0) {
+    breakdown += ` + ${fmt(mmprojGb)} Vision`;
+  }
+  breakdown += ` · ${ctxSize.toLocaleString()} ctx · ~${Math.round(paramsB)}B params`;
+  
+  document.getElementById("vram-breakdown").textContent = breakdown;
 
   const qbadge = document.getElementById("vram-quant-badge");
   if (qbadge) {

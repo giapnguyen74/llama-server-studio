@@ -32,6 +32,8 @@ type Model struct {
 	MetadataRaw     map[string]interface{} `json:"metadata_raw,omitempty"`
 	Hidden          bool                   `json:"hidden"`
 	ScannedAt       string                 `json:"scanned_at"`
+	MMProjCandidates []string              `json:"mmproj_candidates,omitempty"`
+	MMProjSizesBytes []int64                `json:"mmproj_sizes_bytes,omitempty"`
 }
 
 // ProfileRouting holds proxy configurations for profile-specific routing gateways.

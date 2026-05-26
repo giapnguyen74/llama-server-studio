@@ -98,8 +98,12 @@ export function filterModels() {
   tbody.replaceChildren(
     ...filtered.map(m => {
       const capsCell = document.createElement("td");
-      m.capabilities.forEach(c => {
-        capsCell.append(h("span", {class: "status-pill purple"}, c), " ");
+      (m.capabilities || []).forEach(c => {
+        let colorClass = "purple";
+        if (c === "vision" || c === "embedding") {
+          colorClass = "cyan";
+        }
+        capsCell.append(h("span", {class: `status-pill ${colorClass}`}, c), " ");
       });
 
       const actionsDiv = h("div", {style: "display:flex; gap:8px;"},
@@ -155,6 +159,22 @@ window.viewModelDetails = function(modelID) {
       h("code", {class: "val", style: "background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; font-size:0.75rem;"}, m.path)
     )
   );
+
+  if (m.mmproj_candidates && m.mmproj_candidates.length > 0) {
+    const listItems = m.mmproj_candidates.map((path, idx) => {
+      const filename = path.split('/').pop().split('\\').pop();
+      const sizeBytes = m.mmproj_sizes_bytes ? m.mmproj_sizes_bytes[idx] : 0;
+      const sizeStr = sizeBytes ? ` (${formatBytes(sizeBytes)})` : "";
+      return h("li", {style: "font-size:0.8rem; margin-bottom:4px; color:var(--text-primary);"}, `• ${filename}${sizeStr}`);
+    });
+
+    frag.append(
+      h("div", {class: "meta-row", style: "margin-top:16px; display:block;"},
+        h("span", {class: "lbl", style: "margin-bottom:8px; display:block; font-weight:700;"}, "Multimodal Projectors (vision)"),
+        h("ul", {style: "margin:0; padding-left:4px; list-style-type:none;"}, ...listItems)
+      )
+    );
+  }
 
   if (m.chat_template) {
     const pre = document.createElement("pre");

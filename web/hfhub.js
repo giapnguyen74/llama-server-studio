@@ -13,6 +13,13 @@ export const hfState = {
   readmeCollapsed: true,  // README card state
 };
 
+function jsIsMMProj(filename) {
+  const name = filename.toLowerCase();
+  return /^mmproj-.*\.gguf$/.test(name) ||
+         /^mmproj\.gguf$/.test(name) ||
+         /.*[-_]mmproj([-_.].*)?\.gguf$/.test(name);
+}
+
 // Public entry point — invoked from the nav switcher.
 export async function loadHFHub() {
   let job;
@@ -256,6 +263,16 @@ export function renderHFHubPicker() {
     root.append(readmeCard);
   }
 
+  const hasMMProj = hfState.files.some(f => jsIsMMProj(f.filename));
+  if (hasMMProj) {
+    root.append(h("div", {
+      style: "margin-bottom: 16px; padding: 12px 16px; background: rgba(6,182,212,0.08); border: 1px solid rgba(6,182,212,0.25); border-radius: 8px; font-size: 0.88rem; display: flex; align-items: center; gap: 8px;"
+    },
+      h("strong", {style: "color: var(--accent-cyan);"}, "Multimodal Projector Found: "),
+      "This repository contains a vision projector (mmproj-*.gguf). Select it along with your base GGUF model to enable multimodal chat/vision features."
+    ));
+  }
+
   // Filter / select-all / total bar
   const filterCb = h("input", {type: "checkbox", id: "hfhub-show-all"});
   if (hfState.showAll) filterCb.checked = true;
@@ -294,8 +311,21 @@ export function renderHFHubPicker() {
       const cb = h("input", {type: "checkbox", "data-filename": f.filename});
       if (hfState.selected.has(f.filename)) cb.checked = true;
       cb.addEventListener("change", () => {
-        if (cb.checked) hfState.selected.add(f.filename);
-        else hfState.selected.delete(f.filename);
+        if (cb.checked) {
+          hfState.selected.add(f.filename);
+          // Auto-tick mmproj files if present and selected file is a base model
+          if (hasMMProj && !jsIsMMProj(f.filename)) {
+            hfState.files.forEach(file => {
+              if (jsIsMMProj(file.filename)) {
+                hfState.selected.add(file.filename);
+                const otherCb = tbody.querySelector(`input[data-filename="${CSS.escape(file.filename)}"]`);
+                if (otherCb) otherCb.checked = true;
+              }
+            });
+          }
+        } else {
+          hfState.selected.delete(f.filename);
+        }
         updatePickerSummary();
       });
 

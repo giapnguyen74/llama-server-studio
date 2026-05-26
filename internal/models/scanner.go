@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,21 @@ import (
 	"llama-server-studio/internal/gguf"
 	"llama-server-studio/internal/storage"
 )
+
+var mmprojPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^mmproj-.*\.gguf$`),
+	regexp.MustCompile(`(?i)^mmproj\.gguf$`),
+	regexp.MustCompile(`(?i).*[-_]mmproj([-_.].*)?\.gguf$`),
+}
+
+func IsMMProj(filename string) bool {
+	for _, p := range mmprojPatterns {
+		if p.MatchString(filename) {
+			return true
+		}
+	}
+	return false
+}
 
 var (
 	scanMu     sync.Mutex
@@ -115,8 +131,8 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 	processedDirs := make(map[string]bool)
 	var discoveredModels []storage.Model
 
-	// Helper to add/update a GGUF file in DB
-	processFile := func(path string, source string) {
+	// Helper to add/update a GGUF file in DB with paired mmprojs
+	processFile := func(path string, source string, mmprojs []string) {
 		resolvedPath, err := filepath.EvalSymlinks(path)
 		if err != nil {
 			resolvedPath = path // Fallback to path if symlink can't be resolved
@@ -200,6 +216,29 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 			ctxLen = 2048 // Default fallback context size
 		}
 
+		// Resolve and gather mmproj candidates
+		var mmprojCandidates []string
+		var mmprojSizesBytes []int64
+		mmprojDedup := make(map[string]bool)
+
+		for _, mmprojPath := range mmprojs {
+			resolvedMMProj, err := filepath.EvalSymlinks(mmprojPath)
+			if err != nil {
+				resolvedMMProj = mmprojPath
+			}
+			if mmprojDedup[resolvedMMProj] {
+				continue
+			}
+			mmprojDedup[resolvedMMProj] = true
+
+			mmInfo, err := os.Stat(resolvedMMProj)
+			if err != nil {
+				continue
+			}
+			mmprojCandidates = append(mmprojCandidates, resolvedMMProj)
+			mmprojSizesBytes = append(mmprojSizesBytes, mmInfo.Size())
+		}
+
 		// Infer capabilities
 		caps = append(caps, "completion") // Standard capability
 		if chatTemplate != "" || strings.Contains(strings.ToLower(name), "instruct") || strings.Contains(strings.ToLower(name), "chat") {
@@ -208,29 +247,34 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 		if embLen > 0 && (strings.Contains(strings.ToLower(name), "embed") || strings.Contains(strings.ToLower(name), "bge")) {
 			caps = append(caps, "embedding")
 		}
+		if len(mmprojCandidates) > 0 {
+			caps = append(caps, "vision")
+		}
 
 		repoID := InferredRepoID(resolvedPath)
 
 		// Create record
 		m := storage.Model{
-			ID:              modelID,
-			Path:            path,
-			ResolvedPath:    resolvedPath,
-			DisplayName:     filepath.Base(path),
-			Source:          source,
-			RepoID:          repoID,
-			SizeBytes:       info.Size(),
-			ModifiedAt:      info.ModTime().Format(time.RFC3339),
-			Architecture:    arch,
-			Quantization:    quant,
-			ContextLength:   ctxLen,
-			EmbeddingLength: embLen,
-			BlockCount:      blockCount,
-			TokenizerModel:  tokenizer,
-			ChatTemplate:    chatTemplate,
-			Capabilities:    caps,
-			Hidden:          false,
-			ScannedAt:       time.Now().Format(time.RFC3339),
+			ID:               modelID,
+			Path:             path,
+			ResolvedPath:     resolvedPath,
+			DisplayName:      filepath.Base(path),
+			Source:           source,
+			RepoID:           repoID,
+			SizeBytes:        info.Size(),
+			ModifiedAt:       info.ModTime().Format(time.RFC3339),
+			Architecture:     arch,
+			Quantization:     quant,
+			ContextLength:    ctxLen,
+			EmbeddingLength:  embLen,
+			BlockCount:       blockCount,
+			TokenizerModel:   tokenizer,
+			ChatTemplate:     chatTemplate,
+			Capabilities:     caps,
+			Hidden:           false,
+			ScannedAt:        time.Now().Format(time.RFC3339),
+			MMProjCandidates: mmprojCandidates,
+			MMProjSizesBytes: mmprojSizesBytes,
 		}
 
 		discoveredModels = append(discoveredModels, m)
@@ -257,7 +301,7 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 }
 
 // walkDirRecursive custom walker traverses directory trees, following directory symlinks up to maxDepth levels.
-func walkDirRecursive(path string, source string, depth int, maxDepth int, processedDirs map[string]bool, processFile func(string, string)) {
+func walkDirRecursive(path string, source string, depth int, maxDepth int, processedDirs map[string]bool, processFile func(string, string, []string)) {
 	if depth > maxDepth {
 		return
 	}
@@ -278,6 +322,10 @@ func walkDirRecursive(path string, source string, depth int, maxDepth int, proce
 		return
 	}
 
+	var localModels []string
+	var localMMProjs []string
+	var subDirs []string
+
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, ".") {
@@ -295,12 +343,26 @@ func walkDirRecursive(path string, source string, depth int, maxDepth int, proce
 		}
 
 		if isDir {
-			walkDirRecursive(fullPath, source, depth+1, maxDepth, processedDirs, processFile)
+			subDirs = append(subDirs, fullPath)
 		} else {
 			if strings.HasSuffix(strings.ToLower(name), ".gguf") {
-				processFile(fullPath, source)
+				if IsMMProj(name) {
+					localMMProjs = append(localMMProjs, fullPath)
+				} else {
+					localModels = append(localModels, fullPath)
+				}
 			}
 		}
+	}
+
+	// Process base models in the current directory with local mmprojs paired
+	for _, mPath := range localModels {
+		processFile(mPath, source, localMMProjs)
+	}
+
+	// Recurse into subdirectories
+	for _, subDir := range subDirs {
+		walkDirRecursive(subDir, source, depth+1, maxDepth, processedDirs, processFile)
 	}
 }
 
@@ -322,6 +384,51 @@ func AddManualModel(db *storage.DB, path string) (storage.Model, error) {
 	h := md5.New()
 	h.Write([]byte(resolvedPath))
 	modelID := fmt.Sprintf("%x", h.Sum(nil))
+
+	// MMProj filename heuristic check
+	if IsMMProj(filepath.Base(resolvedPath)) {
+		// Just-downloaded mmproj file. Find any base models in the DB that share the same directory,
+		// and add this mmproj to their candidates if not already present.
+		dir := filepath.Dir(resolvedPath)
+		for _, mRecord := range db.ListModels() {
+			modelDir := filepath.Dir(mRecord.ResolvedPath)
+			if modelDir == dir {
+				alreadyPresent := false
+				for _, cand := range mRecord.MMProjCandidates {
+					if cand == resolvedPath {
+						alreadyPresent = true
+						break
+					}
+				}
+				if !alreadyPresent {
+					mRecord.MMProjCandidates = append(mRecord.MMProjCandidates, resolvedPath)
+					mRecord.MMProjSizesBytes = append(mRecord.MMProjSizesBytes, info.Size())
+					
+					hasVision := false
+					for _, c := range mRecord.Capabilities {
+						if c == "vision" {
+							hasVision = true
+							break
+						}
+					}
+					if !hasVision {
+						mRecord.Capabilities = append(mRecord.Capabilities, "vision")
+					}
+					_ = db.SaveModel(mRecord)
+				}
+			}
+		}
+		// Return mmproj representation without saving it in the main catalog database
+		return storage.Model{
+			ID:           modelID,
+			Path:         path,
+			ResolvedPath: resolvedPath,
+			DisplayName:  filepath.Base(path),
+			Source:       "manual",
+			SizeBytes:    info.Size(),
+			ScannedAt:    time.Now().Format(time.RFC3339),
+		}, nil
+	}
 
 	metadata, err := gguf.ReadMetadata(resolvedPath)
 	var arch, name, quant, tokenizer, chatTemplate string
@@ -373,6 +480,29 @@ func AddManualModel(db *storage.DB, path string) (storage.Model, error) {
 		ctxLen = 2048
 	}
 
+	// Look for sibling mmproj files
+	dir := filepath.Dir(resolvedPath)
+	entries, err := os.ReadDir(dir)
+	var mmprojCandidates []string
+	var mmprojSizesBytes []int64
+
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".gguf") && IsMMProj(entry.Name()) {
+				mPath := filepath.Join(dir, entry.Name())
+				resolvedMPath, err := filepath.EvalSymlinks(mPath)
+				if err != nil {
+					resolvedMPath = mPath
+				}
+				mmInfo, err := os.Stat(resolvedMPath)
+				if err == nil {
+					mmprojCandidates = append(mmprojCandidates, resolvedMPath)
+					mmprojSizesBytes = append(mmprojSizesBytes, mmInfo.Size())
+				}
+			}
+		}
+	}
+
 	caps = append(caps, "completion")
 	if chatTemplate != "" || strings.Contains(strings.ToLower(name), "instruct") || strings.Contains(strings.ToLower(name), "chat") {
 		caps = append(caps, "chat")
@@ -380,25 +510,30 @@ func AddManualModel(db *storage.DB, path string) (storage.Model, error) {
 	if embLen > 0 && (strings.Contains(strings.ToLower(name), "embed") || strings.Contains(strings.ToLower(name), "bge")) {
 		caps = append(caps, "embedding")
 	}
+	if len(mmprojCandidates) > 0 {
+		caps = append(caps, "vision")
+	}
 
 	m := storage.Model{
-		ID:              modelID,
-		Path:            path,
-		ResolvedPath:    resolvedPath,
-		DisplayName:     filepath.Base(path),
-		Source:          "manual",
-		SizeBytes:       info.Size(),
-		ModifiedAt:      info.ModTime().Format(time.RFC3339),
-		Architecture:    arch,
-		Quantization:    quant,
-		ContextLength:   ctxLen,
-		EmbeddingLength: embLen,
-		BlockCount:      blockCount,
-		TokenizerModel:  tokenizer,
-		ChatTemplate:    chatTemplate,
-		Capabilities:    caps,
-		Hidden:          false,
-		ScannedAt:       time.Now().Format(time.RFC3339),
+		ID:               modelID,
+		Path:             path,
+		ResolvedPath:     resolvedPath,
+		DisplayName:      filepath.Base(path),
+		Source:           "manual",
+		SizeBytes:        info.Size(),
+		ModifiedAt:       info.ModTime().Format(time.RFC3339),
+		Architecture:     arch,
+		Quantization:     quant,
+		ContextLength:    ctxLen,
+		EmbeddingLength:  embLen,
+		BlockCount:       blockCount,
+		TokenizerModel:   tokenizer,
+		ChatTemplate:     chatTemplate,
+		Capabilities:     caps,
+		Hidden:           false,
+		ScannedAt:        time.Now().Format(time.RFC3339),
+		MMProjCandidates: mmprojCandidates,
+		MMProjSizesBytes: mmprojSizesBytes,
 	}
 
 	err = db.SaveModel(m)
