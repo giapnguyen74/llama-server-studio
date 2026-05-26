@@ -307,14 +307,6 @@
                 </div>
                 <div id="vram-breakdown" class="vram-hero-breakdown"></div>
               </div>
-              <div class="vram-hero-bar-col">
-                <div class="vram-bar-track">
-                  <div id="vram-bar-fill" class="vram-bar-fill"></div>
-                </div>
-                <div class="vram-bar-labels">
-                  <span>0 GB</span>
-                  <span id="vram-bar-cap">24 GB</span>
-                </div>
               </div>
             </div>
           </div>
@@ -485,25 +477,37 @@
                     </select>
                     <span class="field-hint">Loads model via fast page mapping directly.</span>
                   </div>
-                  <div class="form-group d-flex-align" style="flex-direction:row; gap:16px;">
+                  <div class="form-group">
+                    <label for="adv-mem-mlock">Pin Memory (<code>--mlock</code>)</label>
                     <label class="checkbox-container">
                       <input type="checkbox" id="adv-mem-mlock">
-                      <span>Pin Memory (<code>--mlock</code>)</span>
+                      <span>Enable memory pinning</span>
                     </label>
+                    <span class="field-hint">Locks model in RAM to prevent operating system paging or swapping.</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="adv-mem-cacheprompt">Prompt Caching (<code>--cache-prompt</code>)</label>
                     <label class="checkbox-container">
                       <input type="checkbox" id="adv-mem-cacheprompt" checked>
-                      <span>Prompt Caching (<code>--cache-prompt</code>)</span>
+                      <span>Enable prompt cache</span>
                     </label>
+                    <span class="field-hint">Reuses model context state for identical prompt prefixes to speed up multi-turn chats.</span>
                   </div>
-                  <div class="form-group d-flex-align" style="flex-direction:row; gap:16px;">
+                  <div class="form-group">
+                    <label for="adv-cpu-moe">CPU MoE Offload (<code>--cpu-moe</code>)</label>
                     <label class="checkbox-container">
                       <input type="checkbox" id="adv-cpu-moe">
-                      <span>CPU MoE Offload (<code>--cpu-moe</code>)</span>
+                      <span>Enable CPU MoE Offload</span>
                     </label>
+                    <span class="field-hint">Offloads Mixture of Experts tensor parts to CPU RAM to save GPU VRAM space.</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="adv-kv-unified">Unified KV Cache (<code>--kv-unified</code>)</label>
                     <label class="checkbox-container">
                       <input type="checkbox" id="adv-kv-unified">
-                      <span>Unified KV Cache (<code>--kv-unified</code>)</span>
+                      <span>Enable Unified KV Cache</span>
                     </label>
+                    <span class="field-hint">Uses a unified memory pool strategy for attention key/value storage.</span>
                   </div>
                   <div class="form-group">
                     <label for="adv-cpu-numa">NUMA Optimization (<code>--numa</code>)</label>

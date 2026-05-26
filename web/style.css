@@ -801,10 +801,10 @@ pre, code, textarea.code-font, .terminal-body {
 /* ── VRAM Hero Card ─────────────────────────────────────────────────── */
 .vram-hero-card {
   background: var(--surface);
-  border: 1px solid rgba(47, 111, 115, 0.35);
-  border-left: 4px solid var(--accent-cyan);
+  border: 1px solid var(--border-soft);
+  border-left: 4px solid var(--border-soft);
   border-radius: var(--radius-lg);
-  box-shadow: 0 4px 20px rgba(47, 111, 115, 0.10), var(--shadow-sm);
+  box-shadow: var(--shadow-sm);
   padding: 18px 22px;
   margin-bottom: 20px;
   animation: fadeIn 0.3s ease-out;

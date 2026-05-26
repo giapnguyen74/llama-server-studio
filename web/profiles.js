@@ -84,10 +84,6 @@ export function applyPreset(name) {
   document.getElementById("simple-routing-enabled").checked = true;
   document.getElementById("simple-routing-autostart").checked = false;
   document.getElementById("simple-routing-policy").value = "latest-ready";
-  document.getElementById("simple-ngl").value = "";
-  document.getElementById("simple-threads").value = "";
-  document.getElementById("simple-batch").value = "";
-  document.getElementById("simple-parallel").value = "";
   document.getElementById("adv-gpu-device").value = "";
   document.getElementById("adv-gpu-split").value = "";
   document.getElementById("adv-gpu-tensor").value = "";
@@ -95,7 +91,7 @@ export function applyPreset(name) {
   document.getElementById("adv-mem-flash").value = "auto";
   document.getElementById("adv-mem-mmap").value = "auto";
   document.getElementById("adv-mem-mlock").checked = false;
-  document.getElementById("adv-mem-cacheprompt").checked = true;
+  document.getElementById("adv-mem-cacheprompt").checked = false; // Default false to avoid setting --no-cache-prompt
   document.getElementById("adv-cpu-moe").checked = false;
   document.getElementById("adv-kv-unified").checked = false;
   document.getElementById("adv-cpu-numa").value = "";
@@ -103,25 +99,33 @@ export function applyPreset(name) {
   document.getElementById("adv-spec-draft").value = "";
   document.getElementById("adv-log-file").value = "";
   document.getElementById("adv-log-verbose").checked = false;
-  document.getElementById("adv-diag-perf").checked = true;
+  document.getElementById("adv-diag-perf").checked = true; // Kept checked by default
   document.getElementById("adv-workdir").value = "";
-  document.getElementById("adv-host").value = "127.0.0.1";
-  document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots", "--jinja"]';
+  document.getElementById("adv-host").value = "";
+  document.getElementById("adv-args").value = "";
 
   if (name === "balanced") {
     document.getElementById("simple-ctx").value = "8192";
     document.getElementById("simple-ngl").value = "auto";
     document.getElementById("adv-mem-flash").value = "auto";
+    document.getElementById("adv-mem-cacheprompt").checked = true;
+    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots", "--jinja"]';
   } else if (name === "cpu") {
     document.getElementById("simple-ngl").value = "0";
     document.getElementById("adv-gpu-device").value = "none";
     document.getElementById("adv-mem-flash").value = "off";
+    document.getElementById("adv-mem-cacheprompt").checked = true;
+    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics"]';
   } else if (name === "gpu-offload") {
     document.getElementById("simple-ngl").value = "all";
     document.getElementById("adv-mem-flash").value = "auto";
+    document.getElementById("adv-mem-cacheprompt").checked = true;
+    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics", "--slots"]';
   } else if (name === "long-context") {
     document.getElementById("simple-ctx").value = "32768";
     document.getElementById("simple-parallel").value = "1";
+    document.getElementById("adv-mem-cacheprompt").checked = true;
+    document.getElementById("adv-args").value = '["--no-ui", "-cb", "--metrics"]';
   } else if (name === "embedding") {
     document.getElementById("adv-args").value = '["--embedding"]';
   } else if (name === "rerank") {
@@ -132,6 +136,7 @@ export function applyPreset(name) {
   }
 
   updateCLIPreview();
+  updateVRAMEstimate();
 }
 
 // Tabs
@@ -611,23 +616,6 @@ export function updateVRAMEstimate() {
     qbadge.style.display = model.quantization ? "" : "none";
   }
 
-  // Update hero bar: pick the smallest sensible VRAM tier >= totalGb
-  const tiers = [4, 6, 8, 12, 16, 24, 32, 48, 80, 192];
-  const cap   = tiers.find(t => t >= totalGb) || Math.ceil(totalGb / 8) * 8;
-  const pct   = Math.min(100, (totalGb / cap) * 100);
-
-  const barFill = document.getElementById("vram-bar-fill");
-  const barCap  = document.getElementById("vram-bar-cap");
-  if (barCap)  barCap.textContent = `${cap} GB`;
-  if (barFill) {
-    barFill.style.width = `${pct.toFixed(1)}%`;
-    // Green → yellow → red colour ramp
-    const color = pct < 60 ? "var(--accent-green)"
-                : pct < 85 ? "var(--accent-yellow)"
-                : "var(--accent-red)";
-    barFill.style.background = color;
-    barFill.style.boxShadow  = `0 0 8px ${color}`;
-  }
 }
 
 window.updateVRAMEstimate = updateVRAMEstimate;
