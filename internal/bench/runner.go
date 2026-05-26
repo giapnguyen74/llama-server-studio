@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -65,6 +66,13 @@ func (br *Runner) RunBenchmark(
 	br.running[profileID] = true
 	br.mu.Unlock()
 
+	log.Printf("[BENCHMARK] Starting %s suite for profile %s (workload: %s, repeats: %d, warmups: %d)", kind, profileID, workloadID, repeats, warmups)
+	if kind == "sweep" {
+		log.Printf("[BENCHMARK] Sweep config: flag %s, values %v", sweepFlag, sweepValues)
+	} else if kind == "concurrency" {
+		log.Printf("[BENCHMARK] Concurrency levels: %v", concurrencyPlan)
+	}
+
 	defer func() {
 		br.mu.Lock()
 		delete(br.running, profileID)
@@ -88,9 +96,11 @@ func (br *Runner) RunBenchmark(
 
 	p, ok := br.db.GetProfile(profileID)
 	if !ok {
+		log.Printf("[BENCHMARK] Startup aborted: profile %s not found", profileID)
 		return nil, errors.New("profile not found")
 	}
 	if _, ok := br.db.GetModel(p.ModelID); !ok {
+		log.Printf("[BENCHMARK] Startup aborted: GGUF model for profile %s not found", profileID)
 		return nil, errors.New("associated GGUF model not found")
 	}
 
@@ -122,12 +132,14 @@ func (br *Runner) RunBenchmark(
 	origSrv, origActive := br.db.GetServerByProfile(profileID)
 	if origActive {
 		// Stop active server so it doesn't conflict with our overrides or ports
+		log.Printf("[BENCHMARK] Stopping active user server %s to avoid port collision", origSrv.ID)
 		_ = br.supervisor.StopServer(origSrv.ID)
 	}
 
 	// Helper to restore server
 	defer func() {
 		if origActive {
+			log.Printf("[BENCHMARK] Restoring original server for profile %s", profileID)
 			_, _ = br.supervisor.StartServer(profileID, "", 41000, 41999)
 		}
 	}()
@@ -170,10 +182,12 @@ func (br *Runner) RunBenchmark(
 	if runErr != nil {
 		run.Status = "failed"
 		run.Error = runErr.Error()
+		log.Printf("[BENCHMARK] Suite %s FAILED: %v", runID, runErr)
 	} else {
 		run.Status = "completed"
 		run.Cells = cells
 		run.Recommendation = br.generateRecommendation(cells)
+		log.Printf("[BENCHMARK] Suite %s COMPLETED successfully. Recommendation: %s", runID, run.Recommendation)
 	}
 
 	_ = br.db.SaveBenchmarkRun(run)
@@ -188,6 +202,7 @@ func (br *Runner) executeCell(
 	warmups int,
 	repeats int,
 ) (storage.BenchmarkCell, error) {
+	log.Printf("[BENCHMARK] Executing variant cell %q", label)
 	cell := storage.BenchmarkCell{
 		Label:         label,
 		FlagOverrides: overrides,
@@ -199,6 +214,7 @@ func (br *Runner) executeCell(
 	// 1. Spawn temporary server with overrides
 	srvID, err := br.supervisor.StartServerWithOverrides(profileID, "", 41000, 41999, overrides)
 	if err != nil {
+		log.Printf("[BENCHMARK] Failed to start variant server for %q: %v", label, err)
 		return cell, fmt.Errorf("failed to start sweep server: %w", err)
 	}
 	defer func() {
@@ -217,6 +233,7 @@ func (br *Runner) executeCell(
 		}
 	}
 	if !healthy {
+		log.Printf("[BENCHMARK] Sweep server %s failed to become healthy within 20s", srvID)
 		return cell, errors.New("sweep server failed to become healthy within 20s")
 	}
 
@@ -251,6 +268,7 @@ func (br *Runner) executeCell(
 		}
 	}
 
+	log.Printf("[BENCHMARK] Variant cell %q completed. Mean TG speed: %.2f t/s, Error rate: %.1f%%", label, cell.Aggregates.TGSpeedMean, cell.Aggregates.ErrorRatePercent)
 	return cell, nil
 }
 
@@ -261,6 +279,7 @@ func (br *Runner) executeConcurrencyCell(
 	workload Workload,
 	warmups int,
 ) (storage.BenchmarkCell, error) {
+	log.Printf("[BENCHMARK] Executing concurrency cell %q (level: %d)", label, concurrency)
 	cell := storage.BenchmarkCell{
 		Label:         label,
 		FlagOverrides: nil,
@@ -271,6 +290,7 @@ func (br *Runner) executeConcurrencyCell(
 
 	srvID, err := br.supervisor.StartServer(profileID, "", 41000, 41999)
 	if err != nil {
+		log.Printf("[BENCHMARK] Failed to start concurrency server for %q: %v", label, err)
 		return cell, fmt.Errorf("failed to start concurrency server: %w", err)
 	}
 	defer func() {
@@ -288,6 +308,7 @@ func (br *Runner) executeConcurrencyCell(
 		}
 	}
 	if !healthy {
+		log.Printf("[BENCHMARK] Concurrency server %s failed to become healthy within 20s", srvID)
 		return cell, errors.New("concurrency server failed to become healthy within 20s")
 	}
 
@@ -338,6 +359,7 @@ func (br *Runner) executeConcurrencyCell(
 		cell.Aggregates.ThroughputTGS = (totalGeneratedTokens / (maxDuration / 1000.0))
 	}
 
+	log.Printf("[BENCHMARK] Concurrency cell %q completed. Throughput: %.2f t/s, Error rate: %.1f%%", label, cell.Aggregates.ThroughputTGS, cell.Aggregates.ErrorRatePercent)
 	return cell, nil
 }
 

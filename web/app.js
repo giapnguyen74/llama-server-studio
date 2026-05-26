@@ -838,8 +838,10 @@ async function loadBenchmarksHistory() {
       recBox.style.display = "none";
     }
 
+    const sortedBenchmarks = [...state.benchmarks].sort((a, b) => b.id.localeCompare(a.id));
+
     tbody.replaceChildren(
-      ...state.benchmarks.map(b => {
+      ...sortedBenchmarks.map(b => {
         const p = state.profiles.find(prof => prof.id === b.profile_id);
         const profName  = p ? p.name : "Profile";
 
@@ -854,6 +856,9 @@ async function loadBenchmarksHistory() {
           const first = b.cells[0];
           speed = `${parseFloat(first.aggregates.tg_speed_mean || 0).toFixed(1)} t/s`;
           latency = `${parseFloat(first.aggregates.e2e_p50 || 0).toFixed(0)}ms`;
+        } else if (b.result) {
+          speed = b.result.avg_tokens_per_sec ? `${parseFloat(b.result.avg_tokens_per_sec).toFixed(1)} t/s` : "-";
+          latency = b.result.avg_latency_ms ? `${parseFloat(b.result.avg_latency_ms).toFixed(0)}ms` : "-";
         }
 
         const deleteBtn = document.createElement("button");
@@ -894,6 +899,12 @@ window.viewBenchmarkDetails = function(runID) {
     frag.append(h("div", {
       style: "padding:12px; margin-bottom:16px; background:rgba(16,163,127,0.08); border:1px solid rgba(16,163,127,0.2); border-radius:6px; font-size:0.85rem; font-weight:500; color:var(--text-main);"
     }, b.recommendation));
+  }
+
+  if (b.status === "failed" || b.error) {
+    frag.append(h("div", {
+      style: "padding:12px; margin-bottom:16px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:6px; font-size:0.85rem; font-weight:500; color:#ef4444;"
+    }, h("span", {style: "font-weight:700;"}, "Failure Error: "), b.error || "Unknown benchmark failure error. Check console logs for more details."));
   }
 
   const table = h("table", {class: "data-table", style: "width:100%;"},
