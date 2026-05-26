@@ -191,3 +191,42 @@ func validRepoID(s string) bool {
 func resolveURL(repoID, filename string) string {
 	return hfBaseURL + fmt.Sprintf(hfResolvePath, repoID, filename)
 }
+
+// FetchRepoReadme downloads the README.md content from the repo if it exists.
+func FetchRepoReadme(repoID string) (string, error) {
+	repoID = strings.TrimSpace(repoID)
+	if repoID == "" {
+		return "", errors.New("repo id is required")
+	}
+	if !validRepoID(repoID) {
+		return "", fmt.Errorf("invalid repo id %q", repoID)
+	}
+
+	url := resolveURL(repoID, "README.md")
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to build request: %w", err)
+	}
+	applyHFAuth(req)
+
+	resp, err := hfClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch README: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "No README.md found in this repository.", nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	// Limit to 256KB to avoid massive reads stalling memory
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+

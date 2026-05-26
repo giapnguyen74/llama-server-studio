@@ -134,16 +134,28 @@ type BenchmarkRun struct {
 	Error           string                 `json:"error,omitempty"`
 }
 
+// DownloadJobHistory represents a completed or terminated HF download job record.
+type DownloadJobHistory struct {
+	ID         string `json:"id"`
+	RepoID     string `json:"repo_id"`
+	Status     string `json:"status"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
+	FilesCount int    `json:"files_count"`
+	TotalBytes int64  `json:"total_bytes"`
+}
+
 // DB represents our thread-safe JSON file-based database store.
 type DB struct {
-	mu            sync.RWMutex
-	dataDir       string
-	models        map[string]Model
-	profiles      map[string]Profile
-	servers       map[string]Server
-	stats         []StatsSample
-	benchmarks    map[string]BenchmarkRun
-	nextSampleID  int
+	mu              sync.RWMutex
+	dataDir         string
+	models          map[string]Model
+	profiles        map[string]Profile
+	servers         map[string]Server
+	stats           []StatsSample
+	benchmarks      map[string]BenchmarkRun
+	downloadHistory []DownloadJobHistory
+	nextSampleID    int
 }
 
 // Open initializes and loads the JSON database from dataDir.
@@ -157,13 +169,15 @@ func Open(dataDir string) (*DB, error) {
 	}
 
 	db := &DB{
-		dataDir:    dataDir,
-		models:     make(map[string]Model),
-		profiles:   make(map[string]Profile),
-		servers:    make(map[string]Server),
-		stats:      make([]StatsSample, 0),
-		benchmarks: make(map[string]BenchmarkRun),
+		dataDir:         dataDir,
+		models:          make(map[string]Model),
+		profiles:        make(map[string]Profile),
+		servers:         make(map[string]Server),
+		stats:           make([]StatsSample, 0),
+		benchmarks:      make(map[string]BenchmarkRun),
+		downloadHistory: make([]DownloadJobHistory, 0),
 	}
+
 
 	// Load files, ignoring NotExist errors (empty DB on first run)
 	if err := db.load("models.json", &db.models); err != nil {
@@ -179,6 +193,10 @@ func Open(dataDir string) (*DB, error) {
 	if err := db.load("benchmarks.json", &db.benchmarks); err != nil {
 		return nil, err
 	}
+	if err := db.load("download_history.json", &db.downloadHistory); err != nil {
+		return nil, err
+	}
+
 
 	// Sanity clean-up: delete stopped/crashed records or dead orphaned servers.
 	dirty := false
@@ -304,6 +322,18 @@ func (db *DB) HideModel(id string, hidden bool) error {
 	return db.save("models.json", db.models)
 }
 
+func (db *DB) DeleteModel(id string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if _, ok := db.models[id]; !ok {
+		return errors.New("model not found")
+	}
+	delete(db.models, id)
+	return db.save("models.json", db.models)
+}
+
+
 func (db *DB) ClearScannedModels() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -315,6 +345,24 @@ func (db *DB) ClearScannedModels() error {
 	}
 	return db.save("models.json", db.models)
 }
+
+func (db *DB) ReplaceScannedModels(newModels []Model) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	for id, m := range db.models {
+		if m.Source == "local_dir" || m.Source == "huggingface_cache" {
+			delete(db.models, id)
+		}
+	}
+
+	for _, m := range newModels {
+		db.models[m.ID] = m
+	}
+
+	return db.save("models.json", db.models)
+}
+
 
 // --- Profiles CRUD ---
 
@@ -480,7 +528,30 @@ func (db *DB) DeleteBenchmarkRun(id string) error {
 	return db.save("benchmarks.json", db.benchmarks)
 }
 
+func (db *DB) AddDownloadHistory(h DownloadJobHistory) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	db.downloadHistory = append(db.downloadHistory, h)
+
+	if len(db.downloadHistory) > 100 {
+		db.downloadHistory = db.downloadHistory[len(db.downloadHistory)-100:]
+	}
+
+	return db.save("download_history.json", db.downloadHistory)
+}
+
+func (db *DB) ListDownloadHistory() []DownloadJobHistory {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	list := make([]DownloadJobHistory, len(db.downloadHistory))
+	copy(list, db.downloadHistory)
+	return list
+}
+
 // GetLogFilePath returns the file path on disk for a server's logs
+
 func (db *DB) GetLogFilePath(serverID string) string {
 	return filepath.Join(db.dataDir, "logs", fmt.Sprintf("server-%s.log", serverID))
 }

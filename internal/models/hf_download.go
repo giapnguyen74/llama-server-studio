@@ -42,9 +42,27 @@ func runJob(job *DownloadJob, db *storage.DB) {
 			job.Status = computeTerminalStatus(job)
 		}
 		job.FinishedAt = time.Now().Format(time.RFC3339)
+		
+		var totalBytes int64
+		for _, f := range job.Files {
+			totalBytes += f.SizeBytes
+		}
+		filesCount := len(job.Files)
+		
 		activeJobMu.Unlock()
 		_ = persistJob(job)
+
+		_ = db.AddDownloadHistory(storage.DownloadJobHistory{
+			ID:         job.ID,
+			RepoID:     job.RepoID,
+			Status:     job.Status,
+			StartedAt:  job.StartedAt,
+			FinishedAt: job.FinishedAt,
+			FilesCount: filesCount,
+			TotalBytes: totalBytes,
+		})
 	}()
+
 
 	for _, file := range job.Files {
 		// Cancellation checkpoint — observed between files as well as during
@@ -130,10 +148,24 @@ func downloadOne(ctx context.Context, file *DownloadFile, dir string, db *storag
 	}
 
 	// HF allows subdir filenames like "gguf/model-Q4.gguf"; honour them.
-	finalPath := filepath.Join(dir, file.Filename)
-	if err := os.MkdirAll(filepath.Dir(finalPath), 0755); err != nil {
+	absDir, err := filepath.Abs(filepath.Clean(dir))
+	if err != nil {
+		return fmt.Errorf("resolve target dir: %w", err)
+	}
+	finalPath := filepath.Join(absDir, file.Filename)
+	absFinalPath, err := filepath.Abs(filepath.Clean(finalPath))
+	if err != nil {
+		return fmt.Errorf("resolve final path: %w", err)
+	}
+	rel, err := filepath.Rel(absDir, absFinalPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return fmt.Errorf("path traversal detected: path escapes target directory")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(absFinalPath), 0755); err != nil {
 		return fmt.Errorf("create file subdir: %w", err)
 	}
+	finalPath = absFinalPath
 	partPath := finalPath + ".part"
 
 	// Fast path: a previous run may have already finished this file.  If the

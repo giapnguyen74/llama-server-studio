@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"llama-server-studio/internal/storage"
@@ -104,7 +105,25 @@ func StartJob(repoID string, files []RepoFile, downloadRoot string, db *storage.
 		return nil, errors.New("download root is not configured")
 	}
 
+	// Early disk space precheck
+	var totalDownloadSize int64
+	for _, f := range files {
+		totalDownloadSize += f.SizeBytes
+	}
+
+	if err := os.MkdirAll(downloadRoot, 0755); err == nil {
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(downloadRoot, &stat); err == nil {
+			availableBytes := stat.Bavail * uint64(stat.Bsize)
+			if availableBytes > 0 && uint64(totalDownloadSize) > availableBytes {
+				return nil, fmt.Errorf("insufficient disk space: download requires %.2f GB but only %.2f GB is available", 
+					float64(totalDownloadSize)/1e9, float64(availableBytes)/1e9)
+			}
+		}
+	}
+
 	activeJobMu.Lock()
+
 	// NOTE: do NOT `defer Unlock` here.  persistJob() (called below) takes
 	// the same mutex, so we must release it manually before any helper that
 	// re-enters the lock.

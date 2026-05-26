@@ -29,6 +29,7 @@ type Config struct {
 	GatewayTokenHash string   `json:"gateway_token_hash,omitempty"` // bcrypt hash (preferred)
 	// AllowedOrigins lists explicit HTTP Origins permitted for CORS. Empty = deny all cross-origin.
 	AllowedOrigins []string `json:"allowed_origins"`
+	MaxConcurrentServers int `json:"max_concurrent_servers"`
 
 	// unexported: computed at startup, not serialised
 	bindIsLoopback bool
@@ -158,6 +159,7 @@ func DefaultConfig() *Config {
 		DataDir:          dataDir,
 		GatewayToken:     "",
 		AllowedOrigins:   []string{},
+		MaxConcurrentServers: 2,
 	}
 }
 
@@ -181,6 +183,10 @@ func LoadConfig(path string) (*Config, error) {
 
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, err
+	}
+
+	if cfg.MaxConcurrentServers <= 0 {
+		cfg.MaxConcurrentServers = 2
 	}
 
 	return cfg, nil

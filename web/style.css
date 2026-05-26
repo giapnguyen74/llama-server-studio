@@ -368,7 +368,7 @@ pre, code, textarea.code-font, .terminal-body {
 /* Dashboard double layout columns */
 .dashboard-columns {
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: 1fr 1fr;
   gap: 24px;
 }
 

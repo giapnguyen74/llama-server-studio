@@ -6,11 +6,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"llama-server-studio/internal/gguf"
 	"llama-server-studio/internal/storage"
 )
+
+var (
+	scanMu     sync.Mutex
+	isScanning bool
+)
+
+func IsScanning() bool {
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	return isScanning
+}
+
 
 // Map GGUF general.file_type value to human-readable string.
 var fileTypeMap = map[uint32]string{
@@ -78,8 +91,19 @@ func InferredRepoID(path string) string {
 
 // ScanDirectories recursively searches for `.gguf` files in given folders and updates the DB.
 func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []string) error {
-	// Rebuild catalog freshly on every startup or manual scan by clearing previous cached entries
-	_ = db.ClearScannedModels()
+	scanMu.Lock()
+	if isScanning {
+		scanMu.Unlock()
+		return fmt.Errorf("scan already in progress")
+	}
+	isScanning = true
+	scanMu.Unlock()
+
+	defer func() {
+		scanMu.Lock()
+		isScanning = false
+		scanMu.Unlock()
+	}()
 
 	fmt.Printf("\n[Scanner] Starting GGUF model files crawl...\n")
 	fmt.Printf("[Scanner]   Scan Targets: %s\n", strings.Join(localDirs, ", "))
@@ -89,7 +113,7 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 
 	scannedFiles := make(map[string]bool)
 	processedDirs := make(map[string]bool)
-	modelsCount := 0
+	var discoveredModels []storage.Model
 
 	// Helper to add/update a GGUF file in DB
 	processFile := func(path string, source string) {
@@ -209,8 +233,7 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 			ScannedAt:       time.Now().Format(time.RFC3339),
 		}
 
-		_ = db.SaveModel(m)
-		modelsCount++
+		discoveredModels = append(discoveredModels, m)
 	}
 
 	// 1. Scan user local directories
@@ -225,7 +248,11 @@ func ScanDirectories(db *storage.DB, localDirs []string, scanHF bool, hfDirs []s
 		}
 	}
 
-	fmt.Printf("[Scanner] Crawl finished! Discovered and cataloged %d model files.\n\n", modelsCount)
+	if err := db.ReplaceScannedModels(discoveredModels); err != nil {
+		return fmt.Errorf("failed to save scanned models: %w", err)
+	}
+
+	fmt.Printf("[Scanner] Crawl finished! Discovered and cataloged %d model files.\n\n", len(discoveredModels))
 	return nil
 }
 

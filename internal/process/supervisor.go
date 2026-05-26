@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"llama-server-studio/internal/config"
 	"llama-server-studio/internal/profiles"
 	"llama-server-studio/internal/storage"
 )
@@ -38,14 +39,16 @@ type activeProcess struct {
 // Supervisor manages child llama-server processes.
 type Supervisor struct {
 	db     *storage.DB
+	cfg    *config.Config
 	active map[string]*activeProcess
 	mu     sync.Mutex
 }
 
 // NewSupervisor creates a process supervisor instance.
-func NewSupervisor(db *storage.DB) *Supervisor {
+func NewSupervisor(db *storage.DB, cfg *config.Config) *Supervisor {
 	return &Supervisor{
 		db:     db,
+		cfg:    cfg,
 		active: make(map[string]*activeProcess),
 	}
 }

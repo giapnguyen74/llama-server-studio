@@ -37,22 +37,25 @@ func main() {
 	// 1. Setup CLI Flags
 	listenFlag      := flag.String("listen", "", "Studio bind address (default 127.0.0.1:3100)")
 	configFlag      := flag.String("config", "", "Path to config.json file")
-	dataDirFlag     := flag.String("data-dir", "", "Path to data directory")
+	dataDirFlag     := flag.String("data-dir", "", "Path to data directory (MANDATORY)")
 	serverBinFlag   := flag.String("llama-server-bin", "", "Path to llama-server executable")
 	binDirFlag      := flag.String("llama-bin-dir", "", "Path to llama.cpp binary directory")
-	modelsDirFlag   := flag.String("models-dir", "", "Add a model scan directory (can be repeated)")
+	modelsDirFlag   := flag.String("models-dir", "", "Models scan directory path (defaults to <data-dir>/models)")
 	scanHFFlag      := flag.String("scan-hf-cache", "", "Scan Hugging Face cache directories (true/false)")
-	adminTokenFlag  := flag.String("admin-token", "", "Token required for remote admin access")
 	allowLANFlag    := flag.String("allow-insecure-lan", "", "Allow non-localhost bind without token (true/false)")
 	passwordFlag    := flag.Bool("password", false, "Set the admin password interactively, save bcrypt hash to config.json, and exit")
 
 	flag.Parse()
 
+	// 1b. Enforce mandatory data-dir
+	if *dataDirFlag == "" {
+		log.Fatalf("CRITICAL ERROR: --data-dir parameter is mandatory.")
+	}
+
 	// 2. Load Configuration File
 	cfgPath := *configFlag
 	if cfgPath == "" {
-		home, _ := os.UserHomeDir()
-		cfgPath = filepath.Join(home, ".llama-server-studio", "config.json")
+		cfgPath = filepath.Join(*dataDirFlag, "config.json")
 	}
 
 	cfg, err := config.LoadConfig(cfgPath)
@@ -84,15 +87,16 @@ func main() {
 	if *binDirFlag != "" {
 		cfg.LlamaBinDir = *binDirFlag
 	}
-	if *modelsDirFlag != "" {
-		// Split by comma in case multiple are passed, or append
-		cfg.ModelsDirs = strings.Split(*modelsDirFlag, ",")
+	
+	// Single models dir setup, defaults to <data-dir>/models
+	modelsDir := *modelsDirFlag
+	if modelsDir == "" {
+		modelsDir = filepath.Join(cfg.DataDir, "models")
 	}
+	cfg.ModelsDirs = []string{modelsDir}
+
 	if *scanHFFlag != "" {
 		cfg.ScanHFCache = (*scanHFFlag == "true")
-	}
-	if *adminTokenFlag != "" {
-		cfg.AdminToken = *adminTokenFlag
 	}
 	if *allowLANFlag != "" {
 		cfg.AllowInsecureLAN = (*allowLANFlag == "true")
@@ -117,7 +121,7 @@ func main() {
 	// 3c. Security guard: non-loopback bind without any admin credential must be explicit
 	if !cfg.BindIsLoopback() && !cfg.AllowInsecureLAN && !cfg.HasAdminCredential() {
 		log.Fatalf("SECURITY ERROR: Server is configured to listen on %s (non-loopback) but no admin credential is set.\n"+
-			"  Run with -password to set a bcrypt password, set 'admin_token' in config.json,\n"+
+			"  Run with -password to set a bcrypt password,\n"+
 			"  or pass --allow-insecure-lan=true to explicitly opt out.\n"+
 			"  Refusing to start to protect against unauthenticated remote access.", cfg.Listen)
 	}
@@ -126,6 +130,7 @@ func main() {
 	if cfg.LlamaServerBin == "" {
 		cfg.LlamaServerBin = locateLlamaServer(cfg.LlamaBinDir)
 	}
+
 
 	// === CRITICAL BOOT VALIDATION CHECKS ===
 	// A. Validate llama-server executable
@@ -209,7 +214,7 @@ func main() {
 	}
 
 	// 6. Initialize core services
-	supervisor := process.NewSupervisor(db)
+	supervisor := process.NewSupervisor(db, cfg)
 	benchRunner := bench.NewRunner(db, supervisor)
 	proxyRouter := router.NewRouter(db, supervisor, cfg)
 

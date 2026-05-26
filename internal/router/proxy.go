@@ -68,7 +68,7 @@ func (rt *Router) ProxyRequest(w http.ResponseWriter, r *http.Request, profileID
 	// 1. Gateway Token Security
 	// If no gateway token is configured, the proxy is disabled entirely.
 	// Set a gateway token in Security Settings to enable the proxy.
-	if rt.cfg.GatewayToken == "" {
+	if !rt.cfg.HasGatewayToken() {
 		writeJSONError(w, http.StatusServiceUnavailable,
 			"Proxy gateway is disabled: no gateway_token is configured. "+
 				"Set one in the Security Gateway settings to enable the proxy endpoint.")
@@ -81,7 +81,7 @@ func (rt *Router) ProxyRequest(w http.ResponseWriter, r *http.Request, profileID
 	if token == "" {
 		token = r.URL.Query().Get("token")
 	}
-	if token != rt.cfg.GatewayToken {
+	if !rt.cfg.VerifyGatewayToken(token) {
 		writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid gateway token. Use Authorization: Bearer <gateway_token>")
 		return
 	}
