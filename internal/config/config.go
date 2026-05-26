@@ -24,6 +24,7 @@ type Config struct {
 	AdminPasswordHash  string   `json:"admin_password_hash,omitempty"`
 	AllowInsecureLAN   bool     `json:"allow_insecure_lan"`
 	DataDir          string   `json:"data_dir"`
+	HFToken          string   `json:"hf_token,omitempty"`
 	GatewayToken     string   `json:"gateway_token,omitempty"`      // legacy plaintext — migrated on first save
 	GatewayTokenHash string   `json:"gateway_token_hash,omitempty"` // bcrypt hash (preferred)
 	// AllowedOrigins lists explicit HTTP Origins permitted for CORS. Empty = deny all cross-origin.
@@ -125,6 +126,16 @@ func (c *Config) VerifyGatewayToken(token string) bool {
 // HasGatewayToken returns true when any gateway credential is configured.
 func (c *Config) HasGatewayToken() bool {
 	return c.GatewayTokenHash != "" || c.GatewayToken != ""
+}
+
+// HFDownloadRoot is the directory under which the Hugging Face Hub downloader
+// creates per-repo subfolders, as specified in docs/hf_support.md §4.
+//
+// It is always derived from DataDir (the studio's home dir) rather than from
+// ModelsDirs, so downloads have a single canonical home that doesn't shift
+// when the user reconfigures scan paths.
+func (c *Config) HFDownloadRoot() string {
+	return filepath.Join(c.DataDir, "models")
 }
 
 // DefaultConfig returns the default configuration.

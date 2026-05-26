@@ -101,6 +101,19 @@ func main() {
 	// 3b. Compute loopback flag after all CLI overrides are applied
 	cfg.SetBindIsLoopback(computeLoopback(cfg.Listen))
 
+	// 3c. Hugging Face Token setup & rate-limit check
+	models.SetHFToken(cfg.HFToken)
+	activeHFToken := cfg.HFToken
+	if activeHFToken == "" {
+		activeHFToken = os.Getenv("HF_TOKEN")
+	}
+	if activeHFToken == "" {
+		activeHFToken = os.Getenv("HF_API_TOKEN")
+	}
+	if activeHFToken == "" {
+		log.Println("WARNING: Hugging Face authentication token (HF_TOKEN env or 'hf_token' in config.json) is missing. Anonymous downloads and metadata queries are highly rate-limited by Hugging Face and may fail or download slower.")
+	}
+
 	// 3c. Security guard: non-loopback bind without any admin credential must be explicit
 	if !cfg.BindIsLoopback() && !cfg.AllowInsecureLAN && !cfg.HasAdminCredential() {
 		log.Fatalf("SECURITY ERROR: Server is configured to listen on %s (non-loopback) but no admin credential is set.\n"+
@@ -153,6 +166,22 @@ func main() {
 	// B. Validate models scan directories
 	if len(cfg.ModelsDirs) == 0 {
 		cfg.ModelsDirs = []string{filepath.Join(cfg.DataDir, "models")}
+	}
+
+	// Always include the HF download root so files dropped by the new
+	// Hugging Face Hub downloader (docs/hf_support.md §4) get picked up on
+	// the next rescan even if the user reconfigured models_dirs.  Added in
+	// memory only — not persisted to config.json.
+	hfRoot := cfg.HFDownloadRoot()
+	alreadyScanned := false
+	for _, d := range cfg.ModelsDirs {
+		if filepath.Clean(d) == filepath.Clean(hfRoot) {
+			alreadyScanned = true
+			break
+		}
+	}
+	if !alreadyScanned {
+		cfg.ModelsDirs = append(cfg.ModelsDirs, hfRoot)
 	}
 
 	validDirCount := 0

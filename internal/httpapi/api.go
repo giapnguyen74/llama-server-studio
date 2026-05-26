@@ -7,6 +7,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -121,8 +122,18 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/models/rescan", auth(s.handleRescanModels))
 	mux.HandleFunc("GET /api/models/{model_id}", auth(s.handleGetModel))
 	mux.HandleFunc("POST /api/models/{model_id}/hide", auth(s.handleHideModel))
-	mux.HandleFunc("POST /api/models/download", auth(s.handleDownloadModel))
-	mux.HandleFunc("GET /api/models/downloads", auth(s.handleGetModelDownloads))
+
+	// 3b. Hugging Face Hub downloader — see docs/hf_support.md §6.
+	mux.HandleFunc("GET /api/hf/repo", auth(s.handleHFRepo))
+	mux.HandleFunc("POST /api/hf/jobs", auth(s.handleHFStartJob))
+	mux.HandleFunc("GET /api/hf/jobs/current", auth(s.handleHFCurrentJob))
+	mux.HandleFunc("POST /api/hf/jobs/current/cancel", auth(s.handleHFCancelJob))
+	mux.HandleFunc("GET /api/hf/jobs/resumable", auth(s.handleHFResumable))
+
+	// 3c. Legacy single-file shim — kept for external scripts that still post
+	// `{model_string: "repo:quant"}`.  Translates into a one-file HF job.
+	mux.HandleFunc("POST /api/models/download", auth(s.handleDownloadModelLegacy))
+	mux.HandleFunc("GET /api/models/downloads", auth(s.handleGetModelDownloadsLegacy))
 
 	// 4. Profiles API
 	mux.HandleFunc("GET /api/profiles", auth(s.handleListProfiles))
@@ -387,7 +398,111 @@ func (s *Server) handleHideModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 
-func (s *Server) handleDownloadModel(w http.ResponseWriter, r *http.Request) {
+// --- Hugging Face Hub handlers (see docs/hf_support.md §6) ---
+
+// handleHFRepo proxies the file listing for a given repo id.  Errors from
+// the upstream API are mapped to specific HTTP codes so the UI can show
+// useful messages (404 for missing repo, 401 for gated, 502 for upstream).
+func (s *Server) handleHFRepo(w http.ResponseWriter, r *http.Request) {
+	repoID := strings.TrimSpace(r.URL.Query().Get("repo"))
+	if repoID == "" {
+		writeJSONError(w, http.StatusBadRequest, "query param 'repo' is required")
+		return
+	}
+
+	files, err := models.FetchRepoFiles(repoID)
+	if err != nil {
+		switch {
+		case errors.Is(err, models.ErrRepoNotFound):
+			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Hugging Face repo %q not found", repoID))
+		case errors.Is(err, models.ErrRepoGated):
+			writeJSONError(w, http.StatusUnauthorized, "Authentication required for this repo. Set HF_TOKEN in the environment and restart the studio.")
+		case errors.Is(err, models.ErrRepoUpstream):
+			writeJSONError(w, http.StatusBadGateway, err.Error())
+		default:
+			// FetchRepoFiles returns a plain error for surface-level validation
+			// failures (e.g. bad repo id form) — that's a 400, not a 500.
+			if strings.HasPrefix(err.Error(), "invalid repo id") || strings.HasPrefix(err.Error(), "repo id is required") {
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+			} else {
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
+			}
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"repo_id":             repoID,
+		"files":               files,
+		"hf_token_configured": os.Getenv("HF_TOKEN") != "" || os.Getenv("HF_API_TOKEN") != "",
+	})
+}
+
+// handleHFStartJob spawns a new download job.  Returns 409 with the active
+// job when one is already running, so two browser tabs can re-sync.
+func (s *Server) handleHFStartJob(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Repo  string             `json:"repo"`
+		Files []models.RepoFile  `json:"files"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Repo) == "" {
+		writeJSONError(w, http.StatusBadRequest, "repo is required")
+		return
+	}
+	if len(req.Files) == 0 {
+		writeJSONError(w, http.StatusBadRequest, "at least one file must be selected")
+		return
+	}
+
+	job, err := models.StartJob(req.Repo, req.Files, s.cfg.HFDownloadRoot(), s.db)
+	if err != nil {
+		if errors.Is(err, models.ErrJobInProgress) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":      err.Error(),
+				"active_job": job,
+			})
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, job)
+}
+
+// handleHFCurrentJob returns a snapshot of the active or last-finished job.
+// The body is `null` when no job has ever run in this process.
+func (s *Server) handleHFCurrentJob(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, models.GetActiveJob())
+}
+
+// handleHFCancelJob signals the active job to stop.  Returns 409 when
+// there's nothing to cancel — the UI should already have hidden the button.
+func (s *Server) handleHFCancelJob(w http.ResponseWriter, r *http.Request) {
+	if !models.CancelJob() {
+		writeJSONError(w, http.StatusConflict, "no active job to cancel")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+// handleHFResumable returns the list of repos with .part files left on disk
+// after a previous run.  Each entry is enough to populate the "Resume" list
+// in View A of the UI without an extra metadata round-trip.
+func (s *Server) handleHFResumable(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, models.ListResumableJobs(s.cfg.HFDownloadRoot()))
+}
+
+// handleDownloadModelLegacy is the backwards-compatible single-file route
+// for external scripts that still post `{model_string: "repo:quant"}`.  It
+// fetches the repo metadata, picks the first .gguf matching the quant (or
+// any .gguf if no match), and constructs a one-file job.
+func (s *Server) handleDownloadModelLegacy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ModelString string `json:"model_string"`
 	}
@@ -395,32 +510,95 @@ func (s *Server) handleDownloadModel(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
 	modelStr := strings.TrimSpace(req.ModelString)
 	if modelStr == "" {
 		writeJSONError(w, http.StatusBadRequest, "model_string is required")
 		return
 	}
 
-	if len(s.cfg.ModelsDirs) == 0 || strings.TrimSpace(s.cfg.ModelsDirs[0]) == "" {
-		writeJSONError(w, http.StatusBadRequest, "no models directory configured in config.json")
+	parts := strings.SplitN(modelStr, ":", 2)
+	repoID := strings.TrimSpace(parts[0])
+	quant := "Q4_K_M"
+	if len(parts) == 2 {
+		quant = strings.TrimSpace(parts[1])
+	}
+
+	files, err := models.FetchRepoFiles(repoID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	fileName, err := models.StartModelDownload(modelStr, s.cfg.ModelsDirs[0], s.db)
+	// Match by quant substring first, then fall back to first .gguf.
+	var chosen *models.RepoFile
+	for i, f := range files {
+		lower := strings.ToLower(f.Filename)
+		if strings.HasSuffix(lower, ".gguf") && strings.Contains(lower, strings.ToLower(quant)) {
+			chosen = &files[i]
+			break
+		}
+	}
+	if chosen == nil {
+		for i, f := range files {
+			if strings.HasSuffix(strings.ToLower(f.Filename), ".gguf") {
+				chosen = &files[i]
+				break
+			}
+		}
+	}
+	if chosen == nil {
+		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("no GGUF matching %q in repo %s", quant, repoID))
+		return
+	}
+
+	job, err := models.StartJob(repoID, []models.RepoFile{*chosen}, s.cfg.HFDownloadRoot(), s.db)
 	if err != nil {
+		if errors.Is(err, models.ErrJobInProgress) {
+			writeJSONError(w, http.StatusConflict, err.Error())
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":        true,
-		"file_name": fileName,
+		"file_name": chosen.Filename,
+		"job":       job,
 	})
 }
 
-func (s *Server) handleGetModelDownloads(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, models.GetActiveDownloads())
+// handleGetModelDownloadsLegacy mirrors today's flat array response shape so
+// any client polling `/api/models/downloads` keeps working.  Internally it
+// reads the new active job and projects its files into the old struct.
+func (s *Server) handleGetModelDownloadsLegacy(w http.ResponseWriter, r *http.Request) {
+	job := models.GetActiveJob()
+	if job == nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	type legacyEntry struct {
+		ModelString string  `json:"model_string"`
+		FileName    string  `json:"file_name"`
+		Progress    float64 `json:"progress"`
+		Status      string  `json:"status"`
+		Error       string  `json:"error,omitempty"`
+		BytesLoaded int64   `json:"bytes_loaded"`
+		BytesTotal  int64   `json:"bytes_total"`
+	}
+	out := make([]legacyEntry, 0, len(job.Files))
+	for _, f := range job.Files {
+		out = append(out, legacyEntry{
+			ModelString: job.RepoID,
+			FileName:    f.Filename,
+			Progress:    f.Progress,
+			Status:      f.Status,
+			Error:       f.Error,
+			BytesLoaded: f.BytesLoaded,
+			BytesTotal:  f.SizeBytes,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // --- Profiles handlers ---

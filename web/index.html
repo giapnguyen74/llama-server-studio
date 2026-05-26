@@ -36,6 +36,14 @@
           </svg>
           Model Catalog
         </button>
+        <button class="nav-btn" data-target="hfhub">
+          <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Hugging Face Hub
+        </button>
         <button class="nav-btn" data-target="profiles">
           <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="4" y1="21" x2="4" y2="14"></line>
@@ -207,6 +215,19 @@
               </tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- Section: Hugging Face Hub Downloader -->
+      <section id="section-hfhub" class="content-section">
+        <header class="section-header">
+          <h2>Hugging Face Hub</h2>
+          <p>Browse a Hugging Face repository and download GGUF files into the studio's local model directory.</p>
+        </header>
+
+        <!-- Container is populated by app.js: View A (browse), View B (file picker), or View C (active job). -->
+        <div id="hfhub-root">
+          <div class="empty-state">Loading Hugging Face Hub…</div>
         </div>
       </section>
 
