@@ -207,8 +207,3 @@ func (s *Server) handleTestServer(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(w, resp.Body)
 	}
 }
-
-func (s *Server) handleProxyRoute(w http.ResponseWriter, r *http.Request) {
-	profileID := r.PathValue("profile_id")
-	s.proxyRouter.ProxyRequest(w, r, profileID)
-}

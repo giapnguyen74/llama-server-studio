@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"llama-server-studio/internal/config"
 	"llama-server-studio/internal/profiles"
 	"llama-server-studio/internal/storage"
 )
@@ -87,6 +88,12 @@ func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	if id == s.cfg.GatewayDefaultModel {
+		s.cfg.GatewayDefaultModel = ""
+		_ = config.SaveConfig(s.cfg, s.cfgPath)
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -837,9 +837,61 @@ async function loadSettings() {
 
 // --- 10. SECURITY GATEWAY SETTINGS ---
 
+let currentIntegrationTab = "curl";
+
 async function loadSecurityView() {
   await loadSettings();
   updateSecurityStatusBadge(state.settings.gateway_token_set || false);
+  
+  // Populate default model picker select
+  const select = document.getElementById("sec-gateway-default-select");
+  if (select) {
+    select.innerHTML = '<option value="">— No default (Requires model field) —</option>';
+    state.profiles.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = `${p.name} (${p.id})`;
+      select.appendChild(opt);
+    });
+    select.value = state.settings.gateway_default_model || "";
+  }
+
+  const activeLabel = document.getElementById("sec-gateway-default-active");
+  const statusLabel = document.getElementById("sec-gateway-default-status");
+  const toggleBtn = document.getElementById("btn-gateway-default-toggle");
+  const healthBtn = document.getElementById("btn-gateway-default-health");
+
+  const activeId = state.settings.gateway_default_model;
+  const activeProf = state.profiles.find(p => p.id === activeId);
+
+  if (activeProf) {
+    if (activeLabel) activeLabel.textContent = `${activeProf.name} (${activeId})`;
+
+    const runningServer = state.servers.find(s => s.profile_id === activeId && (s.status === "healthy" || s.status === "ready" || s.status === "starting"));
+    const isRunning = !!runningServer;
+
+    if (statusLabel) {
+      statusLabel.style.display = "";
+      statusLabel.textContent = isRunning ? (runningServer.status === "starting" ? "starting" : "ready") : "stopped";
+      statusLabel.className = isRunning ? "status-pill green" : "status-pill";
+    }
+
+    if (toggleBtn) {
+      toggleBtn.style.display = "";
+      toggleBtn.textContent = isRunning ? "Stop Server" : "Start Server";
+      toggleBtn.className = isRunning ? "btn btn-sm btn-danger" : "btn btn-sm btn-primary";
+    }
+
+    if (healthBtn) {
+      healthBtn.style.display = isRunning && runningServer.status !== "starting" ? "" : "none";
+    }
+  } else {
+    if (activeLabel) activeLabel.textContent = "None (Required in payload)";
+    if (statusLabel) statusLabel.style.display = "none";
+    if (toggleBtn) toggleBtn.style.display = "none";
+    if (healthBtn) healthBtn.style.display = "none";
+  }
+
   updateCurlExample(state.settings.gateway_token_set || false);
 }
 
@@ -858,16 +910,30 @@ function updateCurlExample(tokenIsSet) {
   if (!curlBox) return;
   const activeProfileId = state.profiles.length > 0 ? state.profiles[0].id : "{profile_id}";
   const gwPort = parseInt(window.location.port || "3100") + 1;
-  const authLine = tokenIsSet
-    ? `  -H "Authorization: Bearer <your-gateway-token>" \\\n`
-    : "";
-  curlBox.textContent =
-    `curl -X POST http://${window.location.hostname || "127.0.0.1"}:${gwPort}/profiles/${activeProfileId}/v1/chat/completions \\\n` +
-    authLine +
-    `  -H "Content-Type: application/json" \\\n` +
-    `  -d '{\n` +
-    `    "messages": [{"role": "user", "content": "Hello!"}]\n` +
-    `  }'`;
+  const tokenVal = tokenIsSet ? "<your-gateway-token>" : "sk-xyz";
+
+  if (currentIntegrationTab === "curl") {
+    curlBox.textContent =
+      `curl -X POST http://${window.location.hostname || "127.0.0.1"}:${gwPort}/v1/chat/completions \\\n` +
+      `  -H "Authorization: Bearer ${tokenVal}" \\\n` +
+      `  -H "Content-Type: application/json" \\\n` +
+      `  -d '{\n` +
+      `    "model": "${activeProfileId}",\n` +
+      `    "messages": [{"role": "user", "content": "Hello!"}]\n` +
+      `  }'`;
+  } else {
+    curlBox.textContent =
+      `from openai import OpenAI\n\n` +
+      `client = OpenAI(\n` +
+      `    base_url="http://${window.location.hostname || "127.0.0.1"}:${gwPort}/v1",\n` +
+      `    api_key="${tokenVal}",\n` +
+      `)\n\n` +
+      `response = client.chat.completions.create(\n` +
+      `    model="${activeProfileId}",\n` +
+      `    messages=[{"role": "user", "content": "Hello!"}],\n` +
+      `)\n` +
+      `print(response.choices[0].message.content)`;
+  }
 }
 
 function generateToken() {
@@ -958,6 +1024,118 @@ if (btnDismissBanner) {
       banner.style.display = "none";
       const tokenDisplay = document.getElementById("sec-copy-token-val");
       if (tokenDisplay) tokenDisplay.textContent = "";
+    }
+  });
+}
+
+// Default Model Save Handler
+const btnSaveGatewayDefault = document.getElementById("btn-save-gateway-default");
+if (btnSaveGatewayDefault) {
+  btnSaveGatewayDefault.addEventListener("click", async () => {
+    const select = document.getElementById("sec-gateway-default-select");
+    if (!select) return;
+    btnSaveGatewayDefault.disabled = true;
+    const profileID = select.value;
+
+    try {
+      const res = await apiCall("/api/settings/gateway-default", "POST", { profile_id: profileID });
+      state.settings.gateway_default_model = res.gateway_default_model || "";
+      
+      const activeLabel = document.getElementById("sec-gateway-default-active");
+      if (activeLabel) {
+        const activeId = state.settings.gateway_default_model;
+        const activeProf = state.profiles.find(p => p.id === activeId);
+        activeLabel.textContent = activeProf ? `${activeProf.name} (${activeId})` : "None (Required in payload)";
+      }
+      alert("Gateway default model updated successfully.");
+    } catch (err) {
+      alert("Failed to update gateway default: " + err.message);
+    } finally {
+      btnSaveGatewayDefault.disabled = false;
+    }
+  });
+}
+
+// Integration Example Tabs Handler
+const btnIntcURL = document.getElementById("btn-integration-curl");
+const btnIntPython = document.getElementById("btn-integration-python");
+
+if (btnIntcURL && btnIntPython) {
+  btnIntcURL.addEventListener("click", () => {
+    currentIntegrationTab = "curl";
+    btnIntcURL.classList.add("active");
+    btnIntPython.classList.remove("active");
+    updateCurlExample(state.settings.gateway_token_set || false);
+  });
+
+  btnIntPython.addEventListener("click", () => {
+    currentIntegrationTab = "python";
+    btnIntPython.classList.add("active");
+    btnIntcURL.classList.remove("active");
+    updateCurlExample(state.settings.gateway_token_set || false);
+  });
+}
+
+// Default Model Start/Stop Toggle Handler
+const btnDefaultToggle = document.getElementById("btn-gateway-default-toggle");
+if (btnDefaultToggle) {
+  btnDefaultToggle.addEventListener("click", async () => {
+    const activeId = state.settings.gateway_default_model;
+    if (!activeId) return;
+
+    btnDefaultToggle.disabled = true;
+    const runningServer = state.servers.find(s => s.profile_id === activeId && (s.status === "healthy" || s.status === "ready" || s.status === "starting"));
+
+    try {
+      if (runningServer) {
+        btnDefaultToggle.textContent = "Stopping...";
+        await apiCall(`/api/servers/${runningServer.id}/stop`, "POST");
+      } else {
+        btnDefaultToggle.textContent = "Starting...";
+        await apiCall(`/api/profiles/${activeId}/start`, "POST");
+      }
+      // Reload and refresh
+      await loadData();
+      await loadSecurityView();
+    } catch (err) {
+      alert("Action failed: " + err.message);
+    } finally {
+      btnDefaultToggle.disabled = false;
+    }
+  });
+}
+
+// Default Model Health Check completions ping test
+const btnDefaultHealth = document.getElementById("btn-gateway-default-health");
+if (btnDefaultHealth) {
+  btnDefaultHealth.addEventListener("click", async () => {
+    const activeId = state.settings.gateway_default_model;
+    if (!activeId) return;
+
+    const runningServer = state.servers.find(s => s.profile_id === activeId && (s.status === "healthy" || s.status === "ready"));
+    if (!runningServer) {
+      alert("No active server running for this default profile to perform health check.");
+      return;
+    }
+
+    btnDefaultHealth.disabled = true;
+    btnDefaultHealth.textContent = "Checking...";
+
+    const startTime = performance.now();
+    try {
+      const res = await apiCall(`/api/servers/${runningServer.id}/test`, "POST", {
+        prompt: "Say 'OK'",
+        temp: 0.1,
+        max_tokens: 5,
+        stream: false
+      });
+      const latency = Math.round(performance.now() - startTime);
+      alert(`✅ Health Check Success!\nLatency: ${latency} ms\nResponse: "${res.content || ""}"`);
+    } catch (err) {
+      alert("❌ Health Check Failed: " + err.message);
+    } finally {
+      btnDefaultHealth.disabled = false;
+      btnDefaultHealth.textContent = "Health Check";
     }
   });
 }

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -61,46 +60,25 @@ func NewRouter(db *storage.DB, s *process.Supervisor, cfg *config.Config) *Route
 	}
 }
 
-// ProxyRequest handles routing requests.
-func (rt *Router) ProxyRequest(w http.ResponseWriter, r *http.Request, profileID string) {
+
+// ProxyByModel handles body/model routed requests.
+func (rt *Router) ProxyByModel(w http.ResponseWriter, r *http.Request, p storage.Profile) {
+	// Identity rewrite URL function
+	rewrite := func(req *http.Request) {}
+	rt.serveProfile(w, r, p, false, rewrite)
+}
+
+// serveProfile is the core routine executing the reverse proxy logic.
+func (rt *Router) serveProfile(w http.ResponseWriter, r *http.Request, p storage.Profile, autoStart bool, rewriteURL func(*http.Request)) {
 	startTime := time.Now()
 
-	// 1. Gateway Token Security
-	// If no gateway token is configured, the proxy is disabled entirely.
-	// Set a gateway token in Security Settings to enable the proxy.
-	if !rt.cfg.HasGatewayToken() {
-		writeJSONError(w, http.StatusServiceUnavailable,
-			"Proxy gateway is disabled: no gateway_token is configured. "+
-				"Set one in the Security Gateway settings to enable the proxy endpoint.")
-		return
-	}
-
-	// Token is configured — validate the caller's token.
-	authHeader := r.Header.Get("Authorization")
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-	if token == "" {
-		token = r.URL.Query().Get("token")
-	}
-	if !rt.cfg.VerifyGatewayToken(token) {
-		writeJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid gateway token. Use Authorization: Bearer <gateway_token>")
-		return
-	}
-
-
-	// 2. Validate profile
-	p, ok := rt.db.GetProfile(profileID)
-	if !ok {
-		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Profile '%s' not found", profileID))
-		return
-	}
-
-	// 2. Find active server for profile using primaryInstancePolicy (default "latest-ready")
+	// 1. Find active server for profile using primaryInstancePolicy (default "latest-ready")
 	var activeSrv *storage.Server
 	servers := rt.db.ListServers()
 	
 	var candidateServers []storage.Server
 	for _, s := range servers {
-		if s.ProfileID == profileID && (s.Status == "healthy" || s.Status == "ready" || s.Status == "starting") {
+		if s.ProfileID == p.ID && (s.Status == "healthy" || s.Status == "ready" || s.Status == "starting") {
 			candidateServers = append(candidateServers, s)
 		}
 	}
@@ -115,20 +93,34 @@ func (rt *Router) ProxyRequest(w http.ResponseWriter, r *http.Request, profileID
 		activeSrv = &best
 	}
 
-	// 3. Handle Auto-Start if stopped
+	// 2. Handle Auto-Start if stopped
 	if activeSrv == nil {
-		autoStart := false
-		if p.Routing != nil && p.Routing.Enabled && p.Routing.AutoStart {
-			autoStart = true
+		if !autoStart {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": map[string]interface{}{
+					"message": fmt.Sprintf("Model '%s' has no running server. Start it from the Server Lifecycle tab.", p.ID),
+					"type":    "studio_server_not_running",
+					"code":    "server_not_running",
+					"param":   "model",
+				},
+			})
+			return
 		}
 		
-		if !autoStart {
+		profileAutoStart := false
+		if p.Routing != nil && p.Routing.Enabled && p.Routing.AutoStart {
+			profileAutoStart = true
+		}
+		
+		if !profileAutoStart {
 			writeJSONError(w, http.StatusConflict, fmt.Sprintf("Server for profile '%s' is stopped. autoStart is disabled.", p.Name))
 			return
 		}
 		
 		// Trigger server launch
-		srvID, err := rt.supervisor.StartServer(profileID, rt.cfg.LlamaServerBin, rt.cfg.PortRangeStart, rt.cfg.PortRangeEnd)
+		srvID, err := rt.supervisor.StartServer(p.ID, rt.cfg.LlamaServerBin, rt.cfg.PortRangeStart, rt.cfg.PortRangeEnd)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to auto-start server: %v", err))
 			return
@@ -163,7 +155,7 @@ func (rt *Router) ProxyRequest(w http.ResponseWriter, r *http.Request, profileID
 		activeSrv = &launchedSrv
 	}
 
-	// 4. Obtain or initialize ReverseProxy
+	// 3. Obtain or initialize ReverseProxy
 	targetURLStr := fmt.Sprintf("http://%s:%d", activeSrv.Host, activeSrv.Port)
 	targetURL, err := url.Parse(targetURLStr)
 	if err != nil {
@@ -183,14 +175,9 @@ func (rt *Router) ProxyRequest(w http.ResponseWriter, r *http.Request, profileID
 		originalDirector := proxy.Director
 		proxy.Director = func(req *http.Request) {
 			originalDirector(req)
-			
-			// Strip '/profiles/{profile_id}' from the path
-			prefix := fmt.Sprintf("/profiles/%s", profileID)
-			req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
-			if req.URL.Path == "" {
-				req.URL.Path = "/"
+			if rewriteURL != nil {
+				rewriteURL(req)
 			}
-			
 			// Retain Host header for safety
 			req.Host = targetURL.Host
 		}
@@ -199,12 +186,12 @@ func (rt *Router) ProxyRequest(w http.ResponseWriter, r *http.Request, profileID
 	}
 	rt.mu.Unlock()
 
-	// 5. Capture request metrics using ResponseWriter wrapper
+	// 4. Capture request metrics using ResponseWriter wrapper
 	recorder := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 	
 	proxy.ServeHTTP(recorder, r)
 
-	// 6. Track statistics
+	// 5. Track statistics
 	duration := time.Since(startTime)
 	isError := recorder.statusCode >= 500 || recorder.statusCode == 0
 
@@ -236,5 +223,5 @@ func (rt *Router) ProxyRequest(w http.ResponseWriter, r *http.Request, profileID
 func writeJSONError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": msg})
 }

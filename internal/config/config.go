@@ -30,6 +30,9 @@ type Config struct {
 	// AllowedOrigins lists explicit HTTP Origins permitted for CORS. Empty = deny all cross-origin.
 	AllowedOrigins []string `json:"allowed_origins"`
 	MaxConcurrentServers int `json:"max_concurrent_servers"`
+	GatewayDefaultModel   string `json:"gateway_default_model,omitempty"`
+	GatewayMaxJSONBytes   int64  `json:"gateway_max_json_bytes,omitempty"`
+	GatewayMaxUploadBytes int64  `json:"gateway_max_upload_bytes,omitempty"`
 
 	// unexported: computed at startup, not serialised
 	bindIsLoopback bool
@@ -146,20 +149,23 @@ func DefaultConfig() *Config {
 	hfCache := filepath.Join(home, ".cache", "huggingface", "hub")
 
 	return &Config{
-		Listen:           "127.0.0.1:3100",
-		LlamaServerBin:   "",
-		LlamaBinDir:      "",
-		ModelsDirs:       []string{filepath.Join(dataDir, "models")},
-		ScanHFCache:      true,
-		HFCacheDirs:      []string{hfCache},
-		PortRangeStart:   41000,
-		PortRangeEnd:     41999,
-		AdminToken:       "",
-		AllowInsecureLAN: false,
-		DataDir:          dataDir,
-		GatewayToken:     "",
-		AllowedOrigins:   []string{},
-		MaxConcurrentServers: 2,
+		Listen:                "127.0.0.1:3100",
+		LlamaServerBin:        "",
+		LlamaBinDir:           "",
+		ModelsDirs:            []string{filepath.Join(dataDir, "models")},
+		ScanHFCache:           true,
+		HFCacheDirs:           []string{hfCache},
+		PortRangeStart:        41000,
+		PortRangeEnd:          41999,
+		AdminToken:            "",
+		AllowInsecureLAN:      false,
+		DataDir:               dataDir,
+		GatewayToken:          "",
+		AllowedOrigins:        []string{},
+		MaxConcurrentServers:  2,
+		GatewayDefaultModel:   "",
+		GatewayMaxJSONBytes:   16 * 1024 * 1024,
+		GatewayMaxUploadBytes: 64 * 1024 * 1024,
 	}
 }
 

@@ -79,10 +79,11 @@
         </button>
         <button class="nav-btn" data-target="security">
           <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
           </svg>
-          Security Gateway
+          Gateway
         </button>
       </nav>
       <div class="sidebar-footer">
@@ -872,17 +873,17 @@
         </div>
       </section>
 
-      <!-- Section: Security -->
+      <!-- Section: Gateway -->
       <section id="section-security" class="content-section">
         <header class="section-header">
-          <h2>Security Gateway</h2>
-          <p>Configure authentication keys to secure all proxy completions endpoints across serving profiles.</p>
+          <h2>Gateway</h2>
+          <p>Configure the public API gateway listener to route external client requests to your model profiles.</p>
         </header>
 
         <div class="glass-card" style="max-width: 600px; padding: 24px;">
           <h3 style="margin-bottom: 8px;">Gateway API Token</h3>
           <p class="field-hint" style="margin-bottom: 20px;">
-            When a token is configured, all requests sent to the Stable Gateway proxy routing endpoints (e.g. <code>/profiles/{id}/v1/...</code>) must supply a valid HTTP Bearer token.
+            When a token is configured, all requests sent to the public Gateway proxy routing endpoints (e.g. <code>/v1/chat/completions</code>) must supply a valid HTTP Bearer token.
           </p>
 
           <div class="form-group" style="margin-bottom: 20px;">
@@ -915,18 +916,42 @@
           </div>
         </div>
 
+        <!-- Default Model Picker Card -->
+        <div class="glass-card" style="max-width: 600px; padding: 24px; margin-top: 24px;">
+          <h3 style="margin-bottom: 8px;">Default Model</h3>
+          <p class="field-hint" style="margin-bottom: 20px;">
+            Requests sent to standard public gateway endpoints (e.g. <code>/v1/chat/completions</code>) without a <code>"model"</code> parameter will be auto-routed to this default profile.
+          </p>
+
+          <div class="form-group" style="margin-bottom: 20px;">
+            <label for="sec-gateway-default-select" style="font-weight:600; font-size:0.88rem; display:block; margin-bottom:8px;">Active Default Profile</label>
+            <div style="display:flex; gap:12px; align-items:center;">
+              <select id="sec-gateway-default-select" style="flex:1; max-width:400px; padding:8px 12px; border-radius:6px; border:1px solid var(--border-soft); background:var(--bg-input); color:var(--text-main);">
+                <option value="">— No default (Requires model field) —</option>
+              </select>
+              <button class="btn btn-primary" id="btn-save-gateway-default" style="padding: 8px 16px;">Save Default</button>
+            </div>
+            <div style="margin-top:14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+              <span style="font-weight:600; font-size:0.85rem; color:var(--text-muted);">Current Gateway Default:</span>
+              <span id="sec-gateway-default-active" style="font-weight:700; font-size:0.85rem; color:var(--accent-cyan);">None</span>
+              <span id="sec-gateway-default-status" class="status-pill" style="font-size:0.75rem; display:none;">stopped</span>
+              <button class="btn btn-sm" id="btn-gateway-default-toggle" style="display:none; padding:4px 8px; font-size:0.75rem;"></button>
+              <button class="btn btn-sm btn-secondary" id="btn-gateway-default-health" style="display:none; padding:4px 8px; font-size:0.75rem;">Health Check</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Quick Client Integration Card -->
         <div class="glass-card" style="max-width: 600px; padding: 24px; margin-top: 24px;" id="sec-integration-card">
-          <h3 style="margin-bottom: 12px;">Client Integration Example</h3>
+          <h3 style="margin-bottom: 12px;">Client Integration Examples</h3>
           <p class="field-hint" style="margin-bottom: 16px;">
-            To authenticate requests when calling the proxy from client libraries (e.g. OpenAI SDK, LangChain, or cURL):
+            Call the standard public endpoints with a <code>"model"</code> matching the profile ID:
           </p>
-          <pre style="background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 6px; padding: 16px; font-family: monospace; font-size: 0.8rem; overflow-x: auto; color: var(--text-main); white-space: pre-wrap; word-break: break-all;" id="sec-curl-example">curl -X POST http://127.0.0.1:3100/profiles/{profile_id}/v1/chat/completions \
-  -H "Authorization: Bearer sk-xyz" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'</pre>
+          <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <button class="btn btn-sm btn-secondary active" id="btn-integration-curl" style="padding: 4px 10px; font-size: 0.78rem;">cURL API</button>
+            <button class="btn btn-sm btn-secondary" id="btn-integration-python" style="padding: 4px 10px; font-size: 0.78rem;">OpenAI SDK (Python)</button>
+          </div>
+          <pre style="background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 6px; padding: 16px; font-family: monospace; font-size: 0.8rem; overflow-x: auto; color: var(--text-main); white-space: pre-wrap; word-break: break-all;" id="sec-curl-example"></pre>
         </div>
       </section>
 

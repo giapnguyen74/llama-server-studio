@@ -123,16 +123,17 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	// Return a sanitised view — credentials (hashes, plaintext tokens) are never sent to the browser.
 	// Path fields are masked to avoid leaking the local username / directory layout.
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"listen":           s.cfg.Listen,
-		"llama_server_bin": maskPath(s.cfg.LlamaServerBin),
-		"llama_bin_dir":    maskPath(s.cfg.LlamaBinDir),
-		"models_dirs":      maskPaths(s.cfg.ModelsDirs),
-		"scan_hf_cache":    s.cfg.ScanHFCache,
-		"hf_cache_dirs":    maskPaths(s.cfg.HFCacheDirs),
-		"port_range_start": s.cfg.PortRangeStart,
-		"port_range_end":   s.cfg.PortRangeEnd,
-		"data_dir":         maskPath(s.cfg.DataDir),
-		"allowed_origins":  s.cfg.AllowedOrigins,
+		"listen":                s.cfg.Listen,
+		"llama_server_bin":      maskPath(s.cfg.LlamaServerBin),
+		"llama_bin_dir":         maskPath(s.cfg.LlamaBinDir),
+		"models_dirs":           maskPaths(s.cfg.ModelsDirs),
+		"scan_hf_cache":         s.cfg.ScanHFCache,
+		"hf_cache_dirs":         maskPaths(s.cfg.HFCacheDirs),
+		"port_range_start":      s.cfg.PortRangeStart,
+		"port_range_end":        s.cfg.PortRangeEnd,
+		"data_dir":              maskPath(s.cfg.DataDir),
+		"allowed_origins":       s.cfg.AllowedOrigins,
+		"gateway_default_model": s.cfg.GatewayDefaultModel,
 		// Credential status only — never the actual value or hash.
 		"gateway_token_set": s.cfg.HasGatewayToken(),
 		"admin_cred_set":    s.cfg.HasAdminCredential(),
@@ -141,6 +142,34 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSONError(w, http.StatusForbidden, "Settings updates are disabled in WebUI for security. Please edit config.json directly on disk.")
+}
+
+func (s *Server) handleSetGatewayDefault(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		ProfileID string `json:"profile_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if payload.ProfileID != "" {
+		if _, ok := s.db.GetProfile(payload.ProfileID); !ok {
+			writeJSONError(w, http.StatusNotFound, "profile not found")
+			return
+		}
+	}
+
+	s.cfg.GatewayDefaultModel = payload.ProfileID
+	if err := config.SaveConfig(s.cfg, s.cfgPath); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":                    true,
+		"gateway_default_model": s.cfg.GatewayDefaultModel,
+	})
 }
 
 func (s *Server) handleUpdateSecurity(w http.ResponseWriter, r *http.Request) {
