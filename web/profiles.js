@@ -4,9 +4,25 @@ const profileForm = document.getElementById("profile-form");
 const deleteProfileBtn = document.getElementById("btn-delete-profile");
 const newProfileBtn = document.getElementById("btn-create-new-profile");
 const profileListContainer = document.getElementById("profiles-list-container");
-const profileEditorContainer = document.getElementById("profile-editor-container");
+const profileListView = document.getElementById("profiles-list-view");
+const profileDetailView = document.getElementById("profiles-detail-view");
 const simplePortPolicy = document.getElementById("simple-port-policy");
 const groupFixedPort = document.getElementById("group-fixed-port");
+
+function showListView() {
+  if (profileListView) profileListView.style.display = "";
+  if (profileDetailView) profileDetailView.style.display = "none";
+}
+
+function showDetailView() {
+  if (profileListView) profileListView.style.display = "none";
+  if (profileDetailView) profileDetailView.style.display = "";
+}
+
+const backBtn = document.getElementById("btn-back-to-profiles-list");
+if (backBtn) {
+  backBtn.addEventListener("click", showListView);
+}
 
 // Apply model-embedded defaults when the model selection changes in the profile builder
 export function applyModelDefaults(modelId) {
@@ -153,29 +169,82 @@ if (newProfileBtn) {
 
 export function loadProfilesList() {
   if (!profileListContainer) return;
-  profileListContainer.replaceChildren(
-    ...state.profiles.map(p => {
-      const m = state.models.find(mod => mod.id === p.model_id);
-      const modelName = m ? m.display_name : "No Model Selected";
-      const btn = h("button", {class: "profile-item-btn", id: `prof-btn-${p.id}`},
-        h("strong", {class: "profile-item-title"}, p.name),
-        h("span",   {class: "profile-item-meta"},  modelName)
-      );
-      btn.addEventListener("click", () => selectProfile(p.id));
-      return btn;
-    })
-  );
 
-  if (state.profiles.length > 0) {
-    selectProfile(state.profiles[0].id);
-  } else {
-    initProfileEditor();
+  if (state.profiles.length === 0) {
+    profileListContainer.replaceChildren(
+      h("div", {class: "empty-state"},
+        h("svg", {width:"40",height:"40",viewBox:"0 0 24 24",fill:"none",stroke:"currentColor","stroke-width":"1.5","stroke-linecap":"round","stroke-linejoin":"round",style:"margin-bottom:12px;opacity:0.4;"},
+          h("line",{x1:"4",y1:"21",x2:"4",y2:"14"}),h("line",{x1:"4",y1:"10",x2:"4",y2:"3"}),
+          h("line",{x1:"12",y1:"21",x2:"12",y2:"12"}),h("line",{x1:"12",y1:"8",x2:"12",y2:"3"}),
+          h("line",{x1:"20",y1:"21",x2:"20",y2:"16"}),h("line",{x1:"20",y1:"12",x2:"20",y2:"3"}),
+          h("line",{x1:"1",y1:"14",x2:"7",y2:"14"}),h("line",{x1:"9",y1:"8",x2:"15",y2:"8"}),
+          h("line",{x1:"17",y1:"16",x2:"23",y2:"16"})
+        ),
+        h("div", {}, "No saved profiles yet."),
+        h("div", {style:"font-size:0.8rem;margin-top:4px;opacity:0.7;"}, "Click ", h("strong",{},"New Profile"), " to create your first serving configuration.")
+      )
+    );
+    showListView();
+    return;
   }
+
+  // Build a table of profiles
+  const tbody = h("tbody", {});
+  state.profiles.forEach(p => {
+    const m = state.models.find(mod => mod.id === p.model_id);
+    const modelName = m ? m.display_name : "—";
+    const args = p.args || [];
+    let ngl = "—", ctx = "—";
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "-ngl" && i+1 < args.length) ngl = args[i+1];
+      if (args[i] === "-c" && i+1 < args.length) ctx = args[i+1];
+    }
+    const routingEnabled = p.routing && p.routing.enabled !== false;
+    const tr = h("tr", {class:"profile-list-row", id:`prof-row-${p.id}`},
+      h("td", {style:"font-weight:600;"},
+        h("div", {style:"font-size:0.92rem;"}, p.name),
+        p.description ? h("div", {style:"font-size:0.75rem;color:var(--text-dim);margin-top:2px;"}, p.description) : null
+      ),
+      h("td", {style:"font-family:monospace;font-size:0.8rem;color:var(--text-muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"}, modelName),
+      h("td", {}, ngl !== "—" ? h("span", {class:"status-pill yellow", style:"font-size:0.72rem;"}, ngl + " layers") : h("span", {style:"color:var(--text-dim);font-size:0.8rem;"}, "auto")),
+      h("td", {}, ctx !== "—" ? h("span", {style:"font-size:0.82rem;"}, parseInt(ctx).toLocaleString() + " tok") : h("span", {style:"color:var(--text-dim);font-size:0.8rem;"}, "default")),
+      h("td", {}, routingEnabled
+        ? h("span", {class:"status-pill green", style:"font-size:0.72rem;"}, "Proxied")
+        : h("span", {class:"status-pill", style:"font-size:0.72rem;background:var(--surface-soft);color:var(--text-dim);"}, "Direct")
+      ),
+      h("td", {style:"text-align:right;"},
+        h("button", {class:"btn btn-secondary btn-sm"},
+          h("svg", {class:"btn-icon-svg",viewBox:"0 0 24 24",fill:"none",stroke:"currentColor","stroke-width":"2.2","stroke-linecap":"round","stroke-linejoin":"round"},
+            h("path",{d:"M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"}),
+            h("path",{d:"M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"})
+          ),
+          "Edit"
+        )
+      )
+    );
+    tr.addEventListener("click", () => selectProfile(p.id));
+    tbody.appendChild(tr);
+  });
+
+  const table = h("table", {class:"data-table"},
+    h("thead", {},
+      h("tr", {},
+        h("th", {}, "Profile"),
+        h("th", {}, "Model"),
+        h("th", {}, "GPU Layers"),
+        h("th", {}, "Context"),
+        h("th", {}, "Gateway"),
+        h("th", {style:"text-align:right;"}, "")
+      )
+    ),
+    tbody
+  );
+  profileListContainer.replaceChildren(table);
+  showListView();
 }
 
 export function initProfileEditor() {
-  if (!profileEditorContainer) return;
-  profileEditorContainer.style.display = "block";
+  showDetailView();
   document.getElementById("profile-editor-title").textContent = "New Serving Profile";
   document.getElementById("edit-profile-id").value = "";
   profileForm.reset();
@@ -228,12 +297,8 @@ export function selectProfile(profileID) {
   const p = state.profiles.find(prof => prof.id === profileID);
   if (!p) return;
 
-  document.querySelectorAll(".profile-item-btn").forEach(btn => btn.classList.remove("active"));
-  const activeBtn = document.getElementById(`prof-btn-${profileID}`);
-  if (activeBtn) activeBtn.classList.add("active");
-
-  profileEditorContainer.style.display = "block";
-  document.getElementById("profile-editor-title").textContent = `Edit Profile: ${p.name}`;
+  showDetailView();
+  document.getElementById("profile-editor-title").textContent = p.name;
   document.getElementById("edit-profile-id").value = p.id;
   document.getElementById("profile-name").value = p.name;
   document.getElementById("profile-desc").value = p.description || "";
@@ -749,6 +814,8 @@ export async function saveActiveProfile() {
     }
     if (window.loadData) await window.loadData();
     loadProfilesList();
+    // Stay on detail view showing the saved profile
+    if (result && result.id) selectProfile(result.id);
     alert("Serving Profile saved successfully!");
     return result;
   } catch (err) {
@@ -765,6 +832,7 @@ if (deleteProfileBtn) {
         await apiCall(`/api/profiles/${id}`, "DELETE");
         if (window.loadData) await window.loadData();
         loadProfilesList();
+        showListView();
       } catch (err) {
         alert(err.message);
       }

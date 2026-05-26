@@ -121,16 +121,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	// Return a sanitised view — credentials (hashes, plaintext tokens) are never sent to the browser.
+	// Path fields are masked to avoid leaking the local username / directory layout.
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"listen":           s.cfg.Listen,
-		"llama_server_bin": s.cfg.LlamaServerBin,
-		"llama_bin_dir":    s.cfg.LlamaBinDir,
-		"models_dirs":      s.cfg.ModelsDirs,
+		"llama_server_bin": maskPath(s.cfg.LlamaServerBin),
+		"llama_bin_dir":    maskPath(s.cfg.LlamaBinDir),
+		"models_dirs":      maskPaths(s.cfg.ModelsDirs),
 		"scan_hf_cache":    s.cfg.ScanHFCache,
-		"hf_cache_dirs":    s.cfg.HFCacheDirs,
+		"hf_cache_dirs":    maskPaths(s.cfg.HFCacheDirs),
 		"port_range_start": s.cfg.PortRangeStart,
 		"port_range_end":   s.cfg.PortRangeEnd,
-		"data_dir":         s.cfg.DataDir,
+		"data_dir":         maskPath(s.cfg.DataDir),
 		"allowed_origins":  s.cfg.AllowedOrigins,
 		// Credential status only — never the actual value or hash.
 		"gateway_token_set": s.cfg.HasGatewayToken(),

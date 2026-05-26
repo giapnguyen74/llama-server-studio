@@ -238,46 +238,63 @@
 
       <!-- Section: Profile Builder -->
       <section id="section-profiles" class="content-section">
-        <header class="section-header">
-          <h2>Profile Builder</h2>
-          <p>Assemble custom serve profiles by configuring parameters or inputting raw CLI flags.</p>
-        </header>
 
-        <div class="profile-columns">
-          <!-- Profiles sidebar selection -->
-          <div class="profile-sidebar glass-card">
-            <div class="card-header">
-              <h3>Saved Profiles</h3>
-              <button class="btn btn-sm btn-primary" id="btn-create-new-profile">
+        <!-- ── LIST VIEW ──────────────────────────────────────────────────── -->
+        <div id="profiles-list-view">
+          <header class="section-header">
+            <div class="header-main">
+              <div>
+                <h2>Profile Builder</h2>
+                <p>Saved serving configurations. Pick one to edit or create a new profile.</p>
+              </div>
+              <button class="btn btn-primary" id="btn-create-new-profile">
                 <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                New
+                New Profile
               </button>
             </div>
-            <div class="profile-list" id="profiles-list-container">
-              <div class="empty-state">No saved profiles.</div>
+          </header>
+
+          <div class="glass-card table-card">
+            <div id="profiles-list-container">
+              <div class="empty-state">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px; opacity:0.4;"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+                <div>No saved profiles yet.</div>
+                <div style="font-size:0.8rem; margin-top:4px; opacity:0.7;">Click <strong>New Profile</strong> to create your first serving configuration.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── DETAIL / EDITOR VIEW ───────────────────────────────────────── -->
+        <div id="profiles-detail-view" style="display:none;">
+
+          <!-- Detail topbar: back + title + actions -->
+          <div class="profiles-detail-topbar">
+            <button class="btn btn-secondary btn-sm" id="btn-back-to-profiles-list">
+              <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              All Profiles
+            </button>
+            <div class="profiles-detail-identity">
+              <span class="profiles-detail-name" id="profile-editor-title">New Profile</span>
+            </div>
+            <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+              <button class="btn btn-secondary btn-sm" id="btn-export-profile-json">
+                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                JSON
+              </button>
+              <button class="btn btn-secondary btn-sm" id="btn-export-profile-sh">
+                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                Shell
+              </button>
+              <button class="btn btn-danger btn-sm" id="btn-delete-profile" style="display:none;">
+                <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                Delete
+              </button>
             </div>
           </div>
 
-          <!-- Profile Editor form -->
-          <div class="profile-editor glass-card" id="profile-editor-container" style="display:none;">
-            <div class="editor-header">
-              <h3 id="profile-editor-title">New Profile</h3>
-              <div class="editor-actions">
-                <button class="btn btn-secondary" id="btn-export-profile-json">
-                  <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-                  JSON
-                </button>
-                <button class="btn btn-secondary" id="btn-export-profile-sh">
-                  <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-                  Shell
-                </button>
-                <button class="btn btn-danger" id="btn-delete-profile" style="display:none;">
-                  <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                  Delete
-                </button>
-              </div>
-            </div>
-
+          <!-- Editor form -->
+          <div class="profile-editor glass-card" id="profile-editor-container">
             <form id="profile-form">
               <div class="presets-container glass-card" style="padding:16px; margin-bottom:20px; border-color:var(--border-soft); background:var(--background-muted);">
                 <div style="font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--accent-pink); margin-bottom:10px;">Quick Configuration Presets</div>
@@ -307,7 +324,7 @@
               </div>
 
               <div class="form-group">
-                <label for="profile-desc">Notes & Description</label>
+                <label for="profile-desc">Notes &amp; Description</label>
                 <textarea id="profile-desc" rows="2" placeholder="Describe hardware context, quant comparison logs..."></textarea>
               </div>
 
@@ -345,56 +362,26 @@
                       <option value="131072">131072</option>
                     </select>
                     <span class="field-hint">Outputs: <code>-c</code> — The prompt context size in tokens.</span>
-                    <details class="arg-details">
-                      <summary>Detailed explanation</summary>
-                      <div class="arg-explanation">
-                        Determines how much previous dialogue and text the model can read. Setting this too high significantly increases VRAM/RAM consumption, potentially leading to slow generations or out-of-memory crashes. Auto-aligns to the selected model's native limit.
-                      </div>
-                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-ngl">GPU VRAM Layers</label>
                     <input type="text" id="simple-ngl" placeholder="e.g. auto, all, or 32">
                     <span class="field-hint">Outputs: <code>-ngl</code> — Number of layers offloaded to GPU.</span>
-                    <details class="arg-details">
-                      <summary>Detailed explanation</summary>
-                      <div class="arg-explanation">
-                        Loads model layers directly into GPU memory (VRAM). Increase this to offload more layers and speed up generation. Set to 0 to run purely on the CPU, or configure exact layer counts to fit within your graphics card's available VRAM.
-                      </div>
-                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-threads">CPU Threads</label>
                     <input type="number" id="simple-threads" placeholder="Auto / System Default">
                     <span class="field-hint">Outputs: <code>-t</code> — CPU cores used during generation.</span>
-                    <details class="arg-details">
-                      <summary>Detailed explanation</summary>
-                      <div class="arg-explanation">
-                        Specifies how many processor threads to allocate. For optimal performance, configure this to match your system's physical (not logical/hyperthreaded) CPU cores. Setting this higher than your physical cores may degrade performance.
-                      </div>
-                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-batch">Batch Size</label>
                     <input type="number" id="simple-batch" placeholder="Auto / System Default">
                     <span class="field-hint">Outputs: <code>-b</code> — Logical maximum prompt batch size.</span>
-                    <details class="arg-details">
-                      <summary>Detailed explanation</summary>
-                      <div class="arg-explanation">
-                        Logical maximum batch size for prompt processing. Higher values increase throughput during bulk prompting and benchmarks, but consume more memory during the initial context load.
-                      </div>
-                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-parallel">Parallel slots</label>
                     <input type="number" id="simple-parallel" placeholder="Auto / System Default">
                     <span class="field-hint">Outputs: <code>-np</code> — Number of concurrent sessions served.</span>
-                    <details class="arg-details">
-                      <summary>Detailed explanation</summary>
-                      <div class="arg-explanation">
-                        Allocates slot allocations to process multiple requests concurrently. Setting this to 1 keeps memory minimal for single-user workloads, while 2+ enables parallel sessions for team environments or benchmarks.
-                      </div>
-                    </details>
                   </div>
                   <div class="form-group">
                     <label for="simple-port-policy">Port Policy</label>
@@ -409,7 +396,7 @@
                   </div>
 
                   <!-- API Routing & Gateway Section -->
-                  <div class="form-section-title" style="grid-column: 1 / -1; margin-top: 16px;">API Routing & Gateway</div>
+                  <div class="form-section-title" style="grid-column: 1 / -1; margin-top: 16px;">API Routing &amp; Gateway</div>
                   <div class="form-group col-6 d-flex-align" style="flex-direction:row; gap:20px; align-items:center; min-height:42px;">
                     <label class="checkbox-container">
                       <input type="checkbox" id="simple-routing-enabled" checked>
@@ -432,7 +419,7 @@
               <!-- Advanced Settings Tab -->
               <div class="tab-content" id="profile-tab-advanced">
                 <!-- Group 1: Hardware & Multi-GPU -->
-                <div class="form-section-title">GPU & Hardware Acceleration</div>
+                <div class="form-section-title">GPU &amp; Hardware Acceleration</div>
                 <div class="form-grid">
                   <div class="form-group">
                     <label for="adv-gpu-device">GPU Device Index (<code>--device</code>)</label>
@@ -463,7 +450,7 @@
                 </div>
 
                 <!-- Group 2: Memory & Caching -->
-                <div class="form-section-title">Memory & KV Cache Tuning</div>
+                <div class="form-section-title">Memory &amp; KV Cache Tuning</div>
                 <div class="form-grid">
                   <div class="form-group">
                     <label for="adv-mem-flash">Flash Attention (<code>--flash-attn</code>)</label>
@@ -516,7 +503,7 @@
                 </div>
 
                 <!-- Group 4: LoRA & Speculative Decoding -->
-                <div class="form-section-title">LoRA & Speculative Decoding</div>
+                <div class="form-section-title">LoRA &amp; Speculative Decoding</div>
                 <div class="form-grid">
                   <div class="form-group">
                     <label for="adv-lora">LoRA Adapter Path (<code>--lora</code>)</label>
@@ -532,37 +519,23 @@
 
                 <!-- Group 5: Logging & Performance Diagnostics -->
                 <div style="display: none;">
-                  <div class="form-section-title">Logging & Diagnostics</div>
+                  <div class="form-section-title">Logging &amp; Diagnostics</div>
                   <div class="form-grid">
                     <div class="form-group">
                       <label for="adv-log-file">Log File Path (<code>--log-file</code>)</label>
                       <input type="text" id="adv-log-file" placeholder="e.g. /var/log/llama-server.log">
                       <span class="field-hint">Path to write process logs on the filesystem.</span>
                     </div>
-                    <div class="form-group d-flex-align" style="flex-direction:row; gap:16px;">
-                      <label class="checkbox-container">
-                        <input type="checkbox" id="adv-log-verbose">
-                        <span>Verbose Logs (<code>--verbose</code>)</span>
-                      </label>
-                      <label class="checkbox-container">
-                        <input type="checkbox" id="adv-diag-perf" checked>
-                        <span>Perf Timings (<code>--perf</code>)</span>
-                      </label>
-                    </div>
                   </div>
                 </div>
 
                 <!-- Group 3: Process Configurations & Cwd -->
                 <div style="display: none;">
-                  <div class="form-section-title">Process & Host Bindings</div>
+                  <div class="form-section-title">Process &amp; Host Bindings</div>
                   <div class="form-row">
                     <div class="form-group col-6">
                       <label for="adv-workdir">Working Directory</label>
                       <input type="text" id="adv-workdir" placeholder="e.g. /opt/llama.cpp">
-                    </div>
-                    <div class="form-group col-6">
-                      <label for="adv-host">Default Host Binding</label>
-                      <input type="text" id="adv-host" placeholder="127.0.0.1 (Default)">
                     </div>
                   </div>
                 </div>
@@ -590,7 +563,7 @@
               <div class="glass-card" id="validation-console" style="margin-bottom:24px; padding:16px; border-color:var(--border-soft); display:none;">
                 <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--accent-pink); margin-bottom:10px; display:flex; align-items:center; gap:6px;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px; height:14px; stroke-width:2.5;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                  Validation & Diagnostics
+                  Validation &amp; Diagnostics
                 </div>
                 <div id="validation-errors" style="display:flex; flex-direction:column; gap:8px;">
                   <!-- Dynamically populated diagnostics -->
@@ -604,7 +577,7 @@
                 </button>
                 <button type="button" class="btn btn-accent" id="btn-save-run-profile">
                   <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline></svg>
-                  Save & Launch Server
+                  Save &amp; Launch Server
                 </button>
               </div>
             </form>

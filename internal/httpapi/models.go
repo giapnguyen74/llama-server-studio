@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.db.ListModels())
+	writeJSON(w, http.StatusOK, maskModels(s.db.ListModels()))
 }
 
 func (s *Server) handleRescanModels(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +32,7 @@ func (s *Server) handleGetModel(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusNotFound, "model not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, m)
+	writeJSON(w, http.StatusOK, maskModel(m))
 }
 
 func (s *Server) handleHideModel(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +271,7 @@ func (s *Server) handleScanStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"models":     s.db.ListModels(),
+		"models":     maskModels(s.db.ListModels()),
 		"profiles":   s.db.ListProfiles(),
 		"servers":    s.db.ListServers(),
 		"benchmarks": s.db.ListBenchmarkRuns(),

@@ -761,61 +761,43 @@ pre, code, textarea.code-font, .terminal-body {
   overflow-y: auto;
 }
 
-/* Double layouts for profile sidebar + builder */
-.profile-columns {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 24px;
-  align-items: start;
-}
-
-.profile-sidebar {
-  min-height: 400px;
-}
-
-.profile-list {
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  gap: 6px;
-}
-
-.profile-item-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  padding: 12px 14px;
-  color: var(--text-muted);
-  text-align: left;
+/* Profile list row */
+.profile-list-row {
   cursor: pointer;
-  font-family: 'Outfit', sans-serif;
-  transition: var(--transition-fast);
+  transition: background-color var(--transition-fast);
 }
 
-.profile-item-btn:hover {
-  background: var(--surface-soft);
+.profile-list-row:hover {
+  background-color: var(--surface-soft);
+}
+
+.profile-list-row td {
+  vertical-align: middle;
+}
+
+/* Profile detail topbar */
+.profiles-detail-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-wrap: wrap;
+}
+
+.profiles-detail-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profiles-detail-name {
+  font-size: 1.15rem;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
-.profile-item-btn.active {
-  background: var(--primary-soft);
-  border-color: var(--border);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.profile-item-title {
-  display: block;
-  font-size: 0.9rem;
-  margin-bottom: 2px;
-}
-
-.profile-item-meta {
-  display: block;
-  font-size: 0.7rem;
-  color: var(--text-dim);
-  font-weight: 500;
-}
 
 .profile-editor {
   padding: 24px;
