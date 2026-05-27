@@ -533,9 +533,18 @@ if (btnRestartSrv) {
   });
 }
 
-const btnToggleConsole = document.getElementById("btn-toggle-console");
-if (btnToggleConsole) {
-  btnToggleConsole.addEventListener("click", () => {
+const btnViewConsole = document.getElementById("btn-view-console");
+if (btnViewConsole) {
+  btnViewConsole.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openConsole(state.activeServerId);
+  });
+}
+
+const consoleToggleBar = document.getElementById("console-toggle-bar");
+if (consoleToggleBar) {
+  consoleToggleBar.addEventListener("click", (e) => {
+    if (e.target.closest(".term-actions")) return;
     if (state.consoleOpen) {
       closeConsole();
     } else {
@@ -705,10 +714,10 @@ if (testBtn) {
 
     const host = s.host === "0.0.0.0" ? "127.0.0.1" : s.host;
     const prompt = testPromptText.value.trim() || "Hello local llama!";
-    const temp = parseFloat(document.getElementById("test-temp").value) || 0.7;
-    const tokens = parseInt(document.getElementById("test-tokens").value) || 2048;
+    const temp = 0.7;
+    const tokens = 2048;
 
-    const isStream = document.getElementById("test-stream").checked;
+    const isStream = true;
 
     const icon = testBtn.querySelector(".btn-icon-svg");
     if (icon) icon.classList.add("spin");
@@ -816,8 +825,8 @@ if (btnCopyCurl) {
 
     const host = s.host === "0.0.0.0" ? "127.0.0.1" : s.host;
     const prompt = testPromptText.value.trim() || "Hello local llama!";
-    const temp = parseFloat(document.getElementById("test-temp").value) || 0.7;
-    const tokens = parseInt(document.getElementById("test-tokens").value) || 2048;
+    const temp = 0.7;
+    const tokens = 2048;
 
     let messages = [
       {
