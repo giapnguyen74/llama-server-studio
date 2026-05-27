@@ -340,10 +340,14 @@ export function loadProfilesList() {
       if (args[i] === "-ngl" && i+1 < args.length) ngl = args[i+1];
       if (args[i] === "-c" && i+1 < args.length) ctx = args[i+1];
     }
+    const isMultimodal = Array.isArray(p.args) && p.args.some((a, idx) => a === "--mmproj" && idx + 1 < p.args.length && p.args[idx+1] !== "");
     const routingEnabled = p.routing && p.routing.enabled !== false;
     const tr = h("tr", {class:"profile-list-row", id:`prof-row-${p.id}`},
       h("td", {style:"font-weight:600;"},
-        h("div", {style:"font-size:0.92rem;"}, p.name),
+        h("div", {style:"font-size:0.92rem; display:flex; align-items:center; gap:8px;"}, 
+          p.name,
+          isMultimodal ? h("span", {class: "status-pill purple-badge", style: "font-size: 0.68rem; background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3); padding: 1px 6px; border-radius: 4px; font-weight: normal;"}, "✨ Multimodal") : ""
+        ),
         p.description ? h("div", {style:"font-size:0.75rem;color:var(--text-dim);margin-top:2px;"}, p.description) : null
       ),
       h("td", {style:"font-family:monospace;font-size:0.8rem;color:var(--text-muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"}, modelName),

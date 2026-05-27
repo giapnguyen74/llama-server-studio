@@ -27,6 +27,7 @@ export function loadDashboard() {
       ...allDisplay.map(srv => {
         const prof = state.profiles.find(p => p.id === srv.profile_id);
         const name = prof ? prof.name : "Unknown Profile";
+        const isMultimodal = prof && Array.isArray(prof.args) && prof.args.some((a, idx) => a === "--mmproj" && idx + 1 < prof.args.length && prof.args[idx+1] !== "");
         const statusClass = srv.status === "healthy" ? "green" : (srv.status === "crashed" ? "red" : "yellow");
         const card = h("div", {
           class: "stat-card",
@@ -34,7 +35,10 @@ export function loadDashboard() {
         },
           h("div", {style: "display:flex; justify-content:space-between; align-items:center;"},
             h("div", {},
-              h("strong", {style: "display:block; font-size:0.95rem;"}, name),
+              h("strong", {style: "display:flex; align-items:center; gap:8px; font-size:0.95rem;"}, 
+                name,
+                isMultimodal ? h("span", {style: "font-size: 0.65rem; background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3); padding: 1px 5px; border-radius: 4px; font-weight: normal;"}, "✨ Multimodal") : ""
+              ),
               h("span",   {style: "font-size:0.75rem; color:var(--text-dim);"}, `PID: ${srv.pid} | Port: ${srv.port}`)
             ),
             h("span", {class: `status-pill ${statusClass}`}, srv.status)

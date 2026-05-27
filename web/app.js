@@ -349,8 +349,13 @@ function renderLifecycleList() {
         actions.append(startBtn);
       }
 
+      const isMultimodal = Array.isArray(p.args) && p.args.some((a, idx) => a === "--mmproj" && idx + 1 < p.args.length && p.args[idx+1] !== "");
+
       const tr = h("tr", {},
-        h("td", {}, h("strong", {}, p.name)),
+        h("td", {}, 
+          h("strong", {}, p.name),
+          isMultimodal ? h("span", {class: "status-pill purple-badge", style: "margin-left: 8px; font-size: 0.7rem; background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3); padding: 2px 6px; border-radius: 4px; font-weight: normal;"}, "✨ Multimodal") : ""
+        ),
         h("td", {class: "cell-model"}, modelLabel),
         h("td", {class: "cell-metric"}, srv ? String(srv.pid || "—") : "—"),
         h("td", {}, h("span", {class: `status-pill ${statusClass(status)}`}, status)),
@@ -399,6 +404,13 @@ window.openProfileDetail = function(profileID) {
 
   document.getElementById("detail-profile-name").textContent = p ? p.name : profileID;
   document.getElementById("detail-model-name").textContent   = m ? m.display_name : "";
+
+  // Hide attachment in quick test for non-multimodal server
+  const isMultimodal = p && Array.isArray(p.args) && p.args.some((a, idx) => a === "--mmproj" && idx + 1 < p.args.length && p.args[idx+1] !== "");
+  const attachmentGroup = document.getElementById("quick-test-attachment-group");
+  if (attachmentGroup) {
+    attachmentGroup.style.display = isMultimodal ? "block" : "none";
+  }
 
   const srv = state.servers.find(s => s.profile_id === profileID && s.status !== "stopped");
   enterDetailState(profileID, srv || null);
@@ -1027,7 +1039,10 @@ async function loadBenchmarksHistory() {
 
         const tr = h("tr", {style: "cursor:pointer;"},
           h("td", {}, h("code", {style: "font-size:0.8rem;"}, b.id.substring(6))),
-          h("td", {}, h("strong", {}, profName)),
+          h("td", {}, 
+            h("strong", {}, profName),
+            b.error ? h("div", {style: "font-size:0.72rem; color:#f87171; margin-top:3px; font-weight:500;"}, `Error: ${b.error}`) : null
+          ),
           h("td", {}, h("span", {class: "status-pill yellow", style: "font-size:0.75rem;"}, typeLabel)),
           h("td", {}, h("span", {style: "font-size:0.8rem; font-style:italic;"}, b.workload_id || "custom")),
           h("td", {}, h("strong", {style: "color:var(--accent-pink);"}, speed)),
