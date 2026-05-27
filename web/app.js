@@ -304,7 +304,7 @@ function renderLifecycleList() {
   if (!lcListBody) return;
   if (state.profiles.length === 0) {
     lcListBody.replaceChildren(
-      h("tr", {}, h("td", {colspan: "6", class: "loading-state"}, "No profiles yet — create one in the Profiles tab."))
+      h("tr", {}, h("td", {colspan: "7", class: "loading-state"}, "No profiles yet — create one in the Profiles tab."))
     );
     return;
   }
@@ -349,14 +349,35 @@ function renderLifecycleList() {
         actions.append(startBtn);
       }
 
-      const isMultimodal = Array.isArray(p.args) && p.args.some((a, idx) => a === "--mmproj" && idx + 1 < p.args.length && p.args[idx+1] !== "");
+      // Calculate capabilities dynamically based on arguments list
+      const argsList = p.args || [];
+      const caps = [];
+      if (argsList.includes("-m") || argsList.includes("--model") || argsList.length > 0) {
+        caps.push({ text: "TXT", color: "purple" });
+      }
+      if (argsList.includes("--embeddings")) {
+        caps.push({ text: "EMB", color: "green" });
+      }
+      const hasMMProj = argsList.some((a, idx) => a === "--mmproj" && idx + 1 < argsList.length && argsList[idx+1] !== "");
+      if (hasMMProj) {
+        caps.push({ text: "VIS", color: "cyan" });
+      }
+      if (caps.length === 0) {
+        caps.push({ text: "TXT", color: "purple" });
+      }
+
+      const capsSpanCell = h("td", {});
+      caps.forEach(cap => {
+        capsSpanCell.append(h("span", {
+          class: `status-pill ${cap.color}`,
+          style: "font-size: 0.68rem; font-weight: 800; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.05em; margin-right: 4px;"
+        }, cap.text), " ");
+      });
 
       const tr = h("tr", {},
-        h("td", {}, 
-          h("strong", {}, p.name),
-          isMultimodal ? h("span", {class: "status-pill purple-badge", style: "margin-left: 8px; font-size: 0.7rem; background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3); padding: 2px 6px; border-radius: 4px; font-weight: normal;"}, "✨ Multimodal") : ""
-        ),
+        h("td", {}, h("strong", {}, p.name)),
         h("td", {class: "cell-model"}, modelLabel),
+        capsSpanCell,
         h("td", {class: "cell-metric"}, srv ? String(srv.pid || "—") : "—"),
         h("td", {}, h("span", {class: `status-pill ${statusClass(status)}`}, status)),
         h("td", {class: "cell-metric"}, sc.genTps || "—"),

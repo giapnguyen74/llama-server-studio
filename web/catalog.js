@@ -101,27 +101,25 @@ export function filterModels() {
       const capsCell = document.createElement("td");
       (m.capabilities || []).forEach(c => {
         let colorClass = "purple";
-        let iconSvg = "";
+        let shortText = c.substring(0, 3).toUpperCase();
         if (c === "vision") {
           colorClass = "cyan";
-          iconSvg = `<svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:middle;margin:0;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
+          shortText = "VIS";
         } else if (c === "embedding") {
-          colorClass = "cyan";
-          iconSvg = `<svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:middle;margin:0;"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`;
+          colorClass = "green";
+          shortText = "EMB";
         } else if (c === "text") {
           colorClass = "purple";
-          iconSvg = `<svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:middle;margin:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>`;
-        } else {
-          colorClass = "purple";
-          iconSvg = `<svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:middle;margin:0;"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
+          shortText = "TXT";
+        } else if (c === "audio") {
+          colorClass = "yellow";
+          shortText = "AUD";
         }
 
         const span = h("span", {
           class: `status-pill ${colorClass}`,
-          title: c.charAt(0).toUpperCase() + c.slice(1),
-          style: "display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; padding:0; border-radius:50%; margin-right:4px;"
-        });
-        span.innerHTML = iconSvg;
+          style: "font-size: 0.68rem; font-weight: 800; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.05em; margin-right: 4px;"
+        }, shortText);
         capsCell.append(span, " ");
       });
 

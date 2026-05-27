@@ -340,17 +340,38 @@ export function loadProfilesList() {
       if (args[i] === "-ngl" && i+1 < args.length) ngl = args[i+1];
       if (args[i] === "-c" && i+1 < args.length) ctx = args[i+1];
     }
-    const isMultimodal = Array.isArray(p.args) && p.args.some((a, idx) => a === "--mmproj" && idx + 1 < p.args.length && p.args[idx+1] !== "");
+    // Calculate capabilities dynamically based on arguments list
+    const caps = [];
+    if (args.includes("-m") || args.includes("--model") || args.length > 0) {
+      caps.push({ text: "TXT", color: "purple" });
+    }
+    if (args.includes("--embeddings")) {
+      caps.push({ text: "EMB", color: "green" });
+    }
+    const hasMMProj = args.some((a, idx) => a === "--mmproj" && idx + 1 < args.length && args[idx+1] !== "");
+    if (hasMMProj) {
+      caps.push({ text: "VIS", color: "cyan" });
+    }
+    if (caps.length === 0) {
+      caps.push({ text: "TXT", color: "purple" });
+    }
+
+    const capsSpanCell = h("td", {});
+    caps.forEach(cap => {
+      capsSpanCell.append(h("span", {
+        class: `status-pill ${cap.color}`,
+        style: "font-size: 0.68rem; font-weight: 800; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.05em; margin-right: 4px;"
+      }, cap.text), " ");
+    });
+
     const routingEnabled = p.routing && p.routing.enabled !== false;
     const tr = h("tr", {class:"profile-list-row", id:`prof-row-${p.id}`},
       h("td", {style:"font-weight:600;"},
-        h("div", {style:"font-size:0.92rem; display:flex; align-items:center; gap:8px;"}, 
-          p.name,
-          isMultimodal ? h("span", {class: "status-pill purple-badge", style: "font-size: 0.68rem; background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3); padding: 1px 6px; border-radius: 4px; font-weight: normal;"}, "✨ Multimodal") : ""
-        ),
+        h("div", {style:"font-size:0.92rem;"}, p.name),
         p.description ? h("div", {style:"font-size:0.75rem;color:var(--text-dim);margin-top:2px;"}, p.description) : null
       ),
       h("td", {style:"font-family:monospace;font-size:0.8rem;color:var(--text-muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"}, modelName),
+      capsSpanCell,
       h("td", {}, ngl !== "—" ? h("span", {class:"status-pill yellow", style:"font-size:0.72rem;"}, ngl + " layers") : h("span", {style:"color:var(--text-dim);font-size:0.8rem;"}, "auto")),
       h("td", {}, ctx !== "—" ? h("span", {style:"font-size:0.82rem;"}, parseInt(ctx).toLocaleString() + " tok") : h("span", {style:"color:var(--text-dim);font-size:0.8rem;"}, "default")),
       h("td", {}, routingEnabled
@@ -376,6 +397,7 @@ export function loadProfilesList() {
       h("tr", {},
         h("th", {}, "Profile"),
         h("th", {}, "Model"),
+        h("th", {}, "Capabilities"),
         h("th", {}, "GPU Layers"),
         h("th", {}, "Context"),
         h("th", {}, "Gateway"),
