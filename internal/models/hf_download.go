@@ -61,6 +61,11 @@ func runJob(job *DownloadJob, db *storage.DB) {
 			FilesCount: filesCount,
 			TotalBytes: totalBytes,
 		})
+
+		// Trigger Dynamic Monitor Worker if the job failed or is partially completed
+		if job.Status == StatusFailed || job.Status == StatusPartial {
+			go startMonitorWorker(job, db)
+		}
 	}()
 
 
@@ -455,4 +460,57 @@ func readPersistedJob(dir string) (*DownloadJob, error) {
 	job.TargetDir = dir
 	job.persistPath = filepath.Join(dir, ".job.json")
 	return &job, nil
+}
+
+// startMonitorWorker is the Dynamic Monitor Worker goroutine.
+// It waits for 10 minutes, checks if the job is still in a failed/partial state
+// and has not been manually resumed, and then wiggles the resume execution loop.
+func startMonitorWorker(job *DownloadJob, db *storage.DB) {
+	timer := time.NewTimer(10 * time.Minute)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		// Timer elapsed, proceed to evaluate state
+	}
+
+	activeJobMu.Lock()
+	defer activeJobMu.Unlock()
+
+	// If the active job is currently running or cancelling, do not touch it
+	if activeJob != nil && (activeJob.Status == StatusRunning || activeJob.Status == StatusCancelling) {
+		return
+	}
+
+	// Verify the active job ID matches the one we want to resume
+	if activeJob != nil && activeJob.ID == job.ID {
+		if activeJob.Status == StatusFailed || activeJob.Status == StatusPartial {
+			// Reconstruct the pending selection list
+			var pending []*DownloadFile
+			for _, f := range activeJob.Files {
+				if f.Status != StatusCompleted && f.Status != StatusSkipped {
+					pending = append(pending, f)
+				}
+			}
+
+			if len(pending) > 0 {
+				ctx, cancel := context.WithCancel(context.Background())
+				activeJob.Status = StatusRunning
+				activeJob.Error = ""
+				activeJob.ctx = ctx
+				activeJob.cancel = cancel
+
+				for _, f := range activeJob.Files {
+					if f.Status != StatusCompleted && f.Status != StatusSkipped {
+						f.Status = StatusPending
+						f.Error = ""
+					}
+				}
+
+				// Re-run the job sequential executor
+				go runJob(activeJob, db)
+				go persistJobLoop(activeJob)
+			}
+		}
+	}
 }
