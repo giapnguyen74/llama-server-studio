@@ -3,3 +3,5 @@ llama-server-studio
 /prs
 *.pyc
 __pycache__
+.DS_Store
+

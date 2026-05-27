@@ -397,7 +397,7 @@ export function loadProfilesList() {
       h("tr", {},
         h("th", {}, "Profile"),
         h("th", {}, "Model"),
-        h("th", {}, "Capabilities"),
+        h("th", {}, "Serving Caps"),
         h("th", {}, "GPU Layers"),
         h("th", {}, "Context"),
         h("th", {}, "Gateway"),

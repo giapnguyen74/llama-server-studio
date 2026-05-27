@@ -1,10 +1,16 @@
-# 🦙 Llama Server Studio
+<div align="center">
+  <img src="assets/llama_studio_logo_1779876976860.png" alt="Llama Server Studio" width="120">
+  <h1>Llama Server Studio</h1>
+  <p><strong>Ollama is too simple. <code>llama.cpp</code> is too complex. This is the middle ground.</strong></p>
 
-> **Ollama is too simple. `llama.cpp` is too complex. This is the middle ground.**
-
-Running local LLMs shouldn't mean choosing between a locked-down black box and a wall of command-line flags. **Llama Server Studio** gives you the control of `llama.cpp`'s `llama-server` without the friction — a practical workbench for people who actually want to tune, benchmark, and ship local inference.
+  [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](./LICENSE)
+  [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://go.dev/)
+  [![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-brightgreen)](./go.mod)
+</div>
 
 ---
+
+Running local LLMs shouldn't mean choosing between a locked-down black box and a wall of command-line flags. **Llama Server Studio** gives you the full control of `llama.cpp`'s `llama-server` without the friction — a practical workbench for people who actually want to tune, benchmark, and ship local inference.
 
 ## The Problem
 
@@ -16,21 +22,65 @@ Running local LLMs shouldn't mean choosing between a locked-down black box and a
 
 ---
 
-## What Llama Server Studio Does
+## ✨ Features at a Glance
 
-### 📥 Simple Model Downloader
-Pull GGUF models by name — similar to `ollama pull`, but you land the actual file and you own it. No opaque blob storage. No registry lock-in. Just a GGUF on disk, with metadata extracted and catalogued automatically.
+### 🛠️ Profile Builder — Simple Sliders to Full Raw Flags
 
-### 🛠️ Profile Builder with Hardware Estimation
-Stop guessing `-ngl` values. Build named *serving profiles* with a visual form: select a model, set your thread count, batch size, parallel sequences, and context window. The studio estimates GPU layer counts that fit your VRAM budget and shows you the exact `llama-server` command it will run — always visible, always copyable.
+Configure `llama-server` the way that suits you. Start with **Simple Mode** — a clean form for context window, GPU layers, thread count, batch size, and parallel slots, with built-in **hardware estimation** that calculates how many GPU layers fit your VRAM budget. Ready to go deeper? Flip to **Advanced Mode** and edit the raw flag array directly. Either way, the exact `llama-server` command is always shown, always copyable — no magic, no surprises.
 
-Switch between a **Simple Mode** slider UI and a raw **Advanced Mode** JSON array for complete flag control. Save profiles, export them as `.sh` scripts, share them with your team.
+> **Simple → Advanced**: Move from a beginner-friendly slider UI to a raw JSON flag array in one click. Nothing is hidden.
 
-### 📊 Benchmark & Meter Suite
-Run repeatable prompt-throughput benchmarks directly against your running servers. Pre-warming, repetition averaging, tokens-per-second parsing — all built in. Compare profiles side-by-side. Understand the real cost of a configuration change before you ship it.
+![Profile Builder — configure llama-server with a visual UI or raw flags](assets/profile-builder.png)
 
-### 🔗 Proxy Gateway (OpenAI-compatible)
-Point your applications at the Studio's stable proxy address instead of ephemeral server ports. The gateway routes to whichever profile is active, handles SSE streaming, and speaks standard OpenAI API — so any tool that works with `ollama serve` or the OpenAI SDK works here too, without reconfiguration.
+---
+
+### 🖥️ Server Lifecycle & Real-Time Monitoring
+
+Start, stop, and restart `llama-server` child processes from the UI. Watch live telemetry: prefill speed, generation throughput, KV-cache utilisation, in-flight requests, and uptime — all updated in real time.
+
+Includes a **Quick Test Console** to fire off a single prompt (with optional image or audio attachment) directly at the running server instance — a fast sanity check without wiring up a full client.
+
+![Server Lifecycle — real-time metrics, logs, and Quick Test console](assets/server.png)
+
+---
+
+### 📊 Benchmark Suite — Pick the Best Setup for Your Lab
+
+Stop guessing which configuration is fastest. Run **repeatable throughput benchmarks** directly against your profiles and let the numbers decide. The suite handles pre-warming, repetition averaging, and tokens-per-second parsing — then surfaces a single **Optimal Recommendation** so you know exactly which settings to ship.
+
+> **Why it matters**: A Q4_K_M at `-ngl 35` might outperform a Q5_K_S at full offload on your hardware. Benchmark first, configure with confidence.
+
+![Benchmark Comparison — measure throughput and latency across profiles](assets/benchmark.png)
+
+---
+
+### 📥 Hugging Face Hub — Pull GGUF Models Like Ollama, but You Own the Files
+
+Type a repo ID, browse the files, pick your quantization, and click download — as easy as `ollama pull`, except **the GGUF lands on your disk in a folder you control**. No opaque blob store, no registry lock-in. Filter to `.gguf`-only, inspect sizes before committing, and batch-select multiple quants in one go. The model is immediately visible in the catalog.
+
+> **Painless**: `Llama-3-8B-Q4_K_M.gguf` in three clicks. No CLI, no `wget`, no figuring out which shard to download.
+
+![Hugging Face Hub — browse repos and download GGUF models](assets/huggingface.png)
+
+---
+
+### 🔗 Proxy Gateway — OpenAI-Compatible Model Router
+
+The gateway is a **stable, named endpoint** that sits in front of your running profiles. Point Open WebUI, the OpenAI Python SDK, LangChain, or any `curl` script at `http://localhost:3101/v1/chat/completions` — it just works, exactly like talking to `ollama serve` or the real OpenAI API. No reconfiguration when you swap models; the gateway routes to whichever profile is active.
+
+| | Llama Server Studio Gateway | Ollama |
+|---|---|---|
+| OpenAI-compatible API | ✅ | ✅ |
+| SSE streaming | ✅ | ✅ |
+| Model routing by name | ✅ | ✅ |
+| You control the llama-server flags | ✅ | ❌ |
+| Benchmarks & profiling | ✅ | ❌ |
+
+![Gateway — OpenAI-compatible proxy; works with Open WebUI and any SDK](assets/gateway.png)
+
+**Plugs into Open WebUI in seconds:**
+
+![Open WebUI connected to Llama Server Studio via the gateway](assets/openwebui-conn.png)
 
 ---
 
@@ -40,6 +90,7 @@ Point your applications at the Studio's stable proxy address instead of ephemera
 - **Embedded Web UI** — the dashboard ships inside the binary via `go:embed`.
 - **Fast GGUF parser** — reads v1/v2/v3 headers directly without loading tensor data. Extracts context length, architecture, and chat template in milliseconds.
 - **Process supervisor** — spawns and watches `llama-server` child processes, auto-allocates ports, streams logs to disk, scrapes CPU/memory in real time.
+- **Multimodal-aware** — profiles built with `--mmproj` are detected automatically; the Quick Test console unlocks image/audio attachment only when the server supports it.
 - **Local-first, local-safe** — binds to `127.0.0.1:3100` by default. LAN exposure requires explicit opt-in.
 
 ---
@@ -51,6 +102,8 @@ Point your applications at the Studio's stable proxy address instead of ephemera
 Requires Go 1.22+. No other toolchain needed.
 
 ```bash
+git clone https://github.com/youruser/llama-server-studio
+cd llama-server-studio
 go build -o llama-server-studio main.go
 ```
 

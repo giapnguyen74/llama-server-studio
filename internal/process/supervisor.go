@@ -536,8 +536,12 @@ func (s *Supervisor) monitorProcess(proc *activeProcess, srv storage.Server) {
 
 	go func() {
 		client := http.Client{Timeout: 1 * time.Second}
-		healthURL := fmt.Sprintf("http://%s:%d/health", srv.Host, srv.Port)
-		modelsURL := fmt.Sprintf("http://%s:%d/v1/models", srv.Host, srv.Port)
+		host := srv.Host
+		if host == "0.0.0.0" || host == "::" || host == "" {
+			host = "127.0.0.1"
+		}
+		healthURL := fmt.Sprintf("http://%s:%d/health", host, srv.Port)
+		modelsURL := fmt.Sprintf("http://%s:%d/v1/models", host, srv.Port)
 		
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
