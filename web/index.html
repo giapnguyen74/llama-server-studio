@@ -16,7 +16,7 @@
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="brand">
-        <img class="brand-logo" src="/static/favicon.png" alt="Llama Server Studio Logo" style="width: 28px; height: 28px; border-radius: 6px; object-fit: cover;">
+        <img class="brand-logo" src="/static/favicon.png" alt="Llama Server Studio Logo" style="width: 38px; height: 38px; border-radius: 8px; object-fit: cover;">
         <div class="brand-name">
           <h1>Llama Server Studio</h1>
           <span>v1.0.0</span>
@@ -788,7 +788,21 @@
                   </div>
                   <div class="form-group" style="margin-top:16px;">
                     <label for="test-prompt">Prompt</label>
-                    <textarea id="test-prompt" rows="3" placeholder="e.g. What is gravity?"></textarea>
+                    <textarea id="test-prompt" rows="3" placeholder="e.g. What is in this image?"></textarea>
+                  </div>
+                  <div class="form-group" style="margin-top:16px;">
+                    <label>Attachment (Image or Voice)</label>
+                    <div style="display:flex; gap:12px; align-items:center;">
+                      <input type="file" id="test-attachment" accept="image/*,audio/*" style="display:none;">
+                      <button class="btn btn-secondary btn-sm" id="btn-trigger-upload" style="padding:8px 14px; font-size:0.8rem; display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px; height:14px;"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                        Attach File
+                      </button>
+                      <div id="attachment-preview-container" style="display:none; align-items:center; gap:8px; background:var(--surface-soft); padding:6px 12px; border-radius:var(--radius-md); border:1px solid var(--border);">
+                        <span id="attachment-name" style="font-size:0.8rem; color:var(--text-primary); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+                        <button id="btn-clear-attachment" style="background:none; border:none; color:var(--accent-red); cursor:pointer; font-weight:bold; font-size:0.9rem; margin-left:4px;">✕</button>
+                      </div>
+                    </div>
                   </div>
                   <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:16px;">
                     <button class="btn btn-primary" id="btn-test-srv">
@@ -1015,7 +1029,7 @@
   <div id="auth-overlay" class="auth-overlay" style="display: none;">
     <div class="auth-card glass-card">
       <div class="auth-brand">
-        <img class="auth-logo" src="/static/favicon.png" alt="Llama Server Studio Logo" style="width: 56px; height: 56px; border-radius: 12px; object-fit: cover; margin-bottom: 16px;">
+        <img class="auth-logo" src="/static/favicon.png" alt="Llama Server Studio Logo" style="width: 80px; height: 80px; border-radius: 16px; object-fit: cover; margin-bottom: 16px;">
         <h2>Llama Server Studio</h2>
         <p>Administrative authentication required</p>
       </div>

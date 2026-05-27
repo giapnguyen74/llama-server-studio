@@ -635,10 +635,60 @@ if (btnDownloadLogs) {
 }
 
 // --- 7. QUICK PROMPT TEST PLAYGROUND ---
+// --- 7. QUICK PROMPT TEST PLAYGROUND & MULTIMODAL INFERENCE ---
 
-const testPromptText = document.getElementById("test-prompt-text");
-const testBtn = document.getElementById("btn-send-inference");
-const testOutputBox = document.getElementById("test-output-stream-box");
+const testPromptText = document.getElementById("test-prompt");
+const testBtn = document.getElementById("btn-test-srv");
+const testOutputBox = document.getElementById("test-response-output");
+
+// Dynamic attachment state
+let attachedBase64 = null;
+
+// File Upload Bindings
+const testAttachmentInput = document.getElementById("test-attachment");
+const btnTriggerUpload = document.getElementById("btn-trigger-upload");
+const attachmentPreview = document.getElementById("attachment-preview-container");
+const attachmentName = document.getElementById("attachment-name");
+const btnClearAttachment = document.getElementById("btn-clear-attachment");
+
+if (btnTriggerUpload && testAttachmentInput) {
+  btnTriggerUpload.addEventListener("click", () => {
+    testAttachmentInput.click();
+  });
+}
+
+if (testAttachmentInput) {
+  testAttachmentInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Enforce 10MB limit
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Attachment exceeds the 10MB limit. Please upload a smaller image or audio clip.");
+      testAttachmentInput.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      attachedBase64 = reader.result;
+      if (attachmentName) attachmentName.textContent = file.name;
+      if (attachmentPreview) attachmentPreview.style.display = "inline-flex";
+    };
+    reader.onerror = () => {
+      alert("Failed to read file. Please try again.");
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+if (btnClearAttachment) {
+  btnClearAttachment.addEventListener("click", () => {
+    attachedBase64 = null;
+    if (testAttachmentInput) testAttachmentInput.value = "";
+    if (attachmentPreview) attachmentPreview.style.display = "none";
+  });
+}
 
 if (testBtn) {
   testBtn.addEventListener("click", async () => {
@@ -655,7 +705,7 @@ if (testBtn) {
     const temp = parseFloat(document.getElementById("test-temp").value) || 0.7;
     const tokens = parseInt(document.getElementById("test-tokens").value) || 2048;
 
-    const isStream = document.getElementById("test-stream-enabled").checked;
+    const isStream = document.getElementById("test-stream").checked;
 
     const icon = testBtn.querySelector(".btn-icon-svg");
     if (icon) icon.classList.add("spin");
@@ -666,15 +716,23 @@ if (testBtn) {
     testOutputBox.replaceChildren(h("span", {class: "system-line"}, "[Connecting to model completions stream…]"));
 
     try {
+      const payload = {
+        prompt,
+        n_predict: tokens,
+        temperature: temp,
+        stream: isStream
+      };
+
+      // Append image_data if a multimodal image or audio file is attached
+      if (attachedBase64) {
+        const rawBase64 = attachedBase64.split(",")[1];
+        payload.image_data = [{ data: rawBase64, id: 1 }];
+      }
+
       const response = await fetch(`http://${host}:${s.port}/completion`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          n_predict: tokens,
-          temperature: temp,
-          stream: isStream
-        })
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
@@ -736,13 +794,20 @@ if (btnCopyCurl) {
     const temp = parseFloat(document.getElementById("test-temp").value) || 0.7;
     const tokens = parseInt(document.getElementById("test-tokens").value) || 2048;
 
-    const curl = `curl http://${host}:${s.port}/completion \\\n` +
-      `  -H "Content-Type: application/json" \\\n` +
-      `  -d '{\n` +
+    let payloadStr = `{\n` +
       `    "prompt": "${prompt}",\n` +
       `    "n_predict": ${tokens},\n` +
-      `    "temperature": ${temp}\n` +
-      `  }'`;
+      `    "temperature": ${temp}`;
+
+    if (attachedBase64) {
+      const rawBase64 = attachedBase64.split(",")[1];
+      payloadStr += `,\n    "image_data": [{"data": "${rawBase64.substring(0, 40)}...", "id": 1}]`;
+    }
+    payloadStr += `\n  }`;
+
+    const curl = `curl http://${host}:${s.port}/completion \\\n` +
+      `  -H "Content-Type: application/json" \\\n` +
+      `  -d '${payloadStr}'`;
 
     navigator.clipboard.writeText(curl);
     alert("curl block copied successfully!");
