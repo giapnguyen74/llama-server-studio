@@ -772,11 +772,23 @@ if (testBtn) {
         const dataURL = attachedBase64;
         const commaIdx = dataURL.indexOf(",");
         const raw = dataURL.slice(commaIdx + 1);
-        const mime = attachedFile.type || "";
+
+        // Sanitize File.type: lowercase, strip params (e.g. "; charset=utf-8"),
+        // then allow only the characters that belong in a MIME type token.
+        // This prevents a crafted browser MIME from injecting into the data URL
+        // or the JSON payload on the backend.
+        const rawMime = (attachedFile.type || "").trim().toLowerCase();
+        const baseMime = rawMime.split(";")[0].trim(); // drop any parameters
+        const safeMimeRe = /^[a-z0-9][a-z0-9!#$&\-^_+.]*\/[a-z0-9][a-z0-9!#$&\-^_+.]*$/;
+        if (!safeMimeRe.test(baseMime)) {
+          throw new Error("Attachment has an unrecognised or unsafe MIME type: " + (rawMime || "(empty)"));
+        }
+        const mime = baseMime;
+
         let kind;
         if (mime.startsWith("image/")) kind = "image";
         else if (mime.startsWith("audio/")) kind = "audio";
-        else throw new Error("Unsupported file type: " + (mime || "unknown"));
+        else throw new Error("Unsupported file type: " + mime);
         payload.attachment = { kind, mime, data: raw };
       }
 

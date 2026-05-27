@@ -135,9 +135,38 @@ Content part:
 
 Audio routing requires both that the running `llama-server` was built with audio mmproj support and that the profile's mmproj is an audio projector. The studio does not introspect projector capabilities; if the format is wrong for the loaded projector, `llama-server` returns an error which is surfaced as 502 (§3).
 
+### 4.B.1 Format support is upstream-bounded
+
+llama.cpp decodes audio with a built-in copy of [miniaudio](https://github.com/mackron/miniaudio), which natively handles WAV (PCM/ADPCM), MP3, FLAC, and OGG/Vorbis. It does **not** support AAC / M4A — those need ffmpeg or another codec layer that llama.cpp does not bundle. Studio will accept an `audio/mp4` / `audio/aac` upload, forward it correctly, and then surface a 502 when miniaudio fails to decode it. Pre-converting on the client side is the simplest workaround:
+
+```bash
+ffmpeg -i input.m4a -c:a libmp3lame -q:a 4 output.mp3
+# or, lossless container swap to WAV
+ffmpeg -i input.m4a output.wav
+```
+
+If/when llama.cpp adds AAC support upstream, no Studio change is needed — the bytes already flow through.
+
+The studio could optionally pre-flight this on the client (warn before upload when `file.type` is `audio/mp4` / `audio/aac` / `audio/x-m4a`); whether to do that is a UX call, not a correctness one.
+
 ### 4.C. Size cap
 
 The frontend rejects files over 10 MB before upload (`web/app.js`). The backend should also enforce a hard cap (10 MB attachment + 1 KB envelope) via `http.MaxBytesReader` to defend against a malicious admin client.
+
+### 4.D. MIME claim: correct values, even when the upstream doesn't need them
+
+llama-server today byte-sniffs the base64 payload (§4.B.1) and treats the MIME inside the data URL as advisory — `data:image/jpeg;base64,<mp3-bytes>` still routes to the audio decoder because the ID3 magic bytes win over the wrong MIME header. The Studio could, in principle, hardcode any MIME and the current upstream would not care.
+
+We send the **real** MIME (from the client's `File.type`, forwarded as `attachment.mime`) anyway, for four reasons:
+
+1. **Portability.** Studio's gateway promise is "any OpenAI-compatible client points here and it works." The inverse should also hold: Studio should produce requests other OpenAI-compatible servers accept. vLLM, LMDeploy, TGI, and real OpenAI all validate the MIME against the bytes and reject mislabeled data URLs.
+2. **Future-proofing.** llama.cpp could tighten validation upstream at any release. Code that depends on undocumented tolerance is one commit away from breaking; the cost of avoiding that exposure is one string field on the wire.
+3. **Log readability.** llama-server's request logs include the declared MIME. Correct values make diagnostics readable; `image/jpeg` for everything makes the logs actively misleading.
+4. **Spec hygiene.** OpenAI's content-part schema specifies real MIMEs. A wrong MIME is technically a malformed request even when it happens to succeed.
+
+**No defense-in-depth byte sniff on the backend.** The client's `File.type` is trusted as the source of truth and dropped directly into the data URL. The threat model justifies this: the endpoint is admin-only behind a session cookie, the request body is size-capped (§4.C), and the worst outcome of a forged MIME is an upstream 4xx — not a security issue. If the threat model ever shifts (e.g. multi-tenant access), add an `http.DetectContentType` cross-check against the first 512 bytes of the decoded payload and reject on mismatch; that change is local to the handler.
+
+The frontend is the one place where the MIME has to be captured correctly. The current `web/app.js` discards the MIME when it does `attachedBase64.split(",")[1]` — see §10.A for the fix (retain `File.type` alongside the base64 payload).
 
 ---
 
@@ -431,8 +460,8 @@ These are the items to close as part of implementing this spec. Each is anchored
 
 | ID | Severity | File:Line | Description |
 | :--- | :--- | :--- | :--- |
-| **B1** | High | `internal/httpapi/servers.go:179-181` | Hardcoded `image/jpeg` MIME for every attachment. Always taken because the client strips the data-URL prefix at `web/app.js:728`. Fix: pass MIME from the client (§4, §10.A). |
-| **B2** | High | `internal/httpapi/servers.go:169-200` | Audio attachments are silently treated as JPEG images. The UI advertises audio support (`web/app.js:667`) but no `input_audio` branch exists. Fix: add the `kind: "audio"` branch (§4.B). |
+| **B1** | Low | `internal/httpapi/servers.go:179-181` | Hardcoded `image/jpeg` MIME on every attachment. **Practically harmless today** — modern `llama-server` sniffs the actual format from the base64 magic bytes (RIFF / ID3 / fLaC / OggS) and routes accordingly, so MP3 / WAV / FLAC / OGG audio reaches the right decoder despite the wrong MIME. Still worth fixing for correctness and to stop relying on undocumented upstream tolerance — see §4. |
+| **B2** | Low | `internal/httpapi/servers.go:169-200` | No `input_audio` content-part branch. **Audio works in practice** (verified end-to-end with MP3 transcription) because llama-server's byte-sniffer salvages the `image_url`-wrapped audio. The explicit `input_audio` shape is still preferable: it surfaces format mismatches as clean 4xx errors (rather than the current 502-from-decoder) and removes the dependency on upstream sniffing behaviour. Fix: §4.B. |
 | **B3** | Medium | `docs/quicktest.md` (prior version) | Documented `/completion` while the code calls `/v1/chat/completions`. Fix: this document. |
 | **B4** | Medium | `web/app.js:804-817` | "Copy curl" generates a request that the studio doesn't send. Fix: §10.C. |
 | **B5** | Low | `internal/httpapi/servers.go:203` | `"model": "model"` literal. Fix: use `srv.ProfileSnapshot.Name` (§6). |

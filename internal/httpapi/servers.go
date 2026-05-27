@@ -179,6 +179,9 @@ func (s *Server) handleTestServer(w http.ResponseWriter, r *http.Request) {
     // Build content parts.
     parts := []map[string]any{{"type": "text", "text": req.Prompt}}
     if a := req.Attachment; a != nil {
+        if err := validateMIME(a.MIME); err != nil {
+            writeJSONError(w, 400, "attachment.mime invalid: "+err.Error()); return
+        }
         switch a.Kind {
         case "image":
             parts = append(parts, map[string]any{
@@ -266,6 +269,32 @@ func profileHasMMProj(p storage.Profile) bool {
         }
     }
     return false
+}
+
+// validateMIME rejects MIME strings that contain characters outside the safe
+// token set defined by RFC 2045 §5.1. This prevents a crafted attachment.mime
+// from injecting content into the data-URL string (e.g. via semicolons,
+// newlines, or quotes) before it is passed to the upstream llama-server.
+//
+// Allowed: letters, digits, '/', '.', '+', '-', '_'
+// Rejected: whitespace, control chars, quotes, angle brackets, semicolons, …
+func validateMIME(m string) error {
+    if m == "" {
+        return fmt.Errorf("empty MIME")
+    }
+    if !strings.Contains(m, "/") {
+        return fmt.Errorf("missing type/subtype separator")
+    }
+    for _, c := range m {
+        ok := (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') ||
+            c == '/' || c == '.' || c == '+' || c == '-' || c == '_'
+        if !ok {
+            return fmt.Errorf("character %q is not allowed in a MIME type", c)
+        }
+    }
+    return nil
 }
 
 func audioFormatFromMIME(m string) (string, bool) {

@@ -18,11 +18,71 @@ Running local LLMs shouldn't mean choosing between a locked-down black box and a
 
 **`llama.cpp` / `llama-server`** gives you everything. Every flag, every option, raw power. But building a valid server command, tracking what each profile does, correlating benchmark results with configuration changes, and wiring it up as a stable OpenAI-compatible endpoint? That's a spreadsheet, a pile of shell scripts, and a lot of `--help` calls.
 
-**There's a gap.** A practical gap for the developers, researchers, and hobbyists who know what they're doing but don't want to babysit processes and reinvent tooling every time.
+**There's a gap.** A practical gap for the developers, researchers, and hobbyists who know what they're doing but don't want to babysit processes and reinvent tooling every time. **Llama Server Studio fills that gap.**
 
 ---
 
-## ✨ Features at a Glance
+## At a Glance
+
+**Who this is for**: developers, researchers, and homelab operators who need fine-grained control over local `llama-server` deployments — without rebuilding their tooling every time.
+
+**How it compares:**
+
+| | Ollama | `llama.cpp` directly | Llama Server Studio |
+|---|---|---|---|
+| Quick start | ✓ minutes | ✗ hours | ✓ minutes |
+| Tune every `llama-server` flag | ✗ | ✓ | ✓ |
+| Hardware-aware GPU layer estimation | ✗ | ✗ | ✓ |
+| Repeatable throughput benchmarks | ✗ | manual | ✓ |
+| Compare multiple profiles side-by-side | ✗ | ✗ | ✓ |
+| OpenAI-compatible gateway | ✓ | ✗ | ✓ |
+| Model files on disk, in folders you own | ✗ | ✓ | ✓ |
+| Single binary, no Docker, no DB | ✓ | ✓ | ✓ |
+
+**What this is *not*:**
+
+- Not a multi-host orchestrator. One machine, one process supervisor — if you need Kubernetes, use Kubernetes.
+- Not a trainer or fine-tuner. Inference and benchmarking only.
+- Not designed to face public traffic. LAN exposure is supported but auth is a single shared credential — put a real reverse proxy in front of it if you go beyond a trusted network.
+
+---
+
+## Quick Demo
+
+Once a profile is running, the Studio's gateway accepts standard OpenAI requests on port `3101`:
+
+```bash
+curl http://localhost:3101/v1/chat/completions \
+  -H "Authorization: Bearer sk-your-gateway-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "my-profile",
+    "messages": [{"role": "user", "content": "Hello local llama!"}],
+    "stream": true
+  }'
+```
+
+Or via the OpenAI Python SDK — no client changes:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:3101/v1",
+    api_key="sk-your-gateway-token",   # set in Studio → Security → Gateway
+)
+resp = client.chat.completions.create(
+    model="my-profile",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(resp.choices[0].message.content)
+```
+
+Anything that speaks OpenAI's wire format speaks to Llama Server Studio: LangChain, Open WebUI, LM Studio's playground, `litellm`, raw `curl`.
+
+---
+
+## ✨ Features
 
 ### 🛠️ Profile Builder — Simple Sliders to Full Raw Flags
 
@@ -104,8 +164,10 @@ Requires Go 1.22+. No other toolchain needed.
 ```bash
 git clone https://github.com/youruser/llama-server-studio
 cd llama-server-studio
-go build -o llama-server-studio main.go
+go build
 ```
+
+The binary is named after the module (`llama-server-studio`).
 
 ### Run
 
@@ -134,7 +196,8 @@ Open **`http://127.0.0.1:3100`** in your browser.
 | `--listen` | Studio bind address and port | `127.0.0.1:3100` |
 | `--data-dir` | Folder for logs, database, config | `~/.llama-server-studio` |
 | `--config` | Path to config.json | `<data-dir>/config.json` |
-| `--llama-server-bin` | Path to llama-server binary | *auto-detected* |
+| `--llama-server-bin` | Path to `llama-server` executable | *auto-detected* |
+| `--llama-bin-dir` | Directory to search for the `llama-server` executable (used when `--llama-server-bin` is unset) | *auto-detected* |
 | `--models-dir` | GGUF model scan directory | `<data-dir>/models` |
 | `--scan-hf-cache` | Scan local Hugging Face cache | `true` |
 | `--allow-insecure-lan` | Allow non-localhost without password | `false` |
@@ -144,12 +207,27 @@ Open **`http://127.0.0.1:3100`** in your browser.
 
 ## 📁 Data Layout
 
+The studio stores everything under `<data-dir>` (default `~/.llama-server-studio`). All files use restrictive permissions (`0600` for files, `0700` for directories).
+
 ```
 <data-dir>/
-├── studio.db       # JSON database: model catalog, profiles, benchmarks, metrics
-├── logs/           # Per-server stdout/stderr logs
-└── exports/        # Exported profile configs and shell scripts
+├── config.json            # Studio settings, gateway token, admin password hash
+├── models.json            # Cached model catalog (rebuilt on every scan)
+├── profiles.json          # Saved llama-server profiles
+├── servers.json           # Active / reattachable child server records
+├── benchmarks.json        # Benchmark run history with full per-cell samples
+├── download_history.json  # Last 100 Hugging Face download jobs (audit trail)
+├── logs/
+│   └── server-<id>.log    # Per-server stdout/stderr (truncated on each start)
+└── models/                # Hugging Face download root
+    └── <repo>/
+        ├── *.gguf         # Downloaded model files
+        └── .job.json      # Resumable-job snapshot (auto-removed on success)
 ```
+
+Live runtime metrics (CPU, RAM, throughput samples) are kept **in memory only** as a 5000-entry ring buffer — they are intentionally not persisted, so a restart starts the telemetry view fresh.
+
+To back the studio up: copy `config.json`, the five top-level JSON files, and your `models/` tree. To migrate to a new machine: copy the same files and adjust any absolute paths inside the JSONs to match the new host.
 
 ---
 
@@ -159,6 +237,16 @@ Open **`http://127.0.0.1:3100`** in your browser.
 2. **Never lock you in.** Raw argument arrays are always an option alongside the form UI.
 3. **Never touch your models.** The catalog is read-only. Files are never modified.
 4. **Local by default.** No cloud, no telemetry, no surprises.
+
+---
+
+## Roadmap & Contributing
+
+Issues, feature requests, and pull requests are all welcome. The codebase is intentionally small (~13k lines, pure Go standard library) — browsing it end-to-end takes an afternoon.
+
+- 🐛 [Open an issue](https://github.com/youruser/llama-server-studio/issues) — bug reports, feature requests, design feedback.
+- 🛠️ Pull requests — design docs for the major subsystems live under [`docs/`](./docs); read the one closest to your change first.
+- 📚 Documentation — corrections and clarifications are as welcome as code.
 
 ---
 
