@@ -123,6 +123,17 @@ func BuildCommand(p *storage.Profile, m *storage.Model, binPath string, runtimeP
 				finalArgs = append(finalArgs, strconv.Itoa(cmd.Port))
 			}
 		default:
+			// Self-healing check: if this argument is an mmproj file but isn't preceded by "--mmproj",
+			// automatically insert the "--mmproj" flag before it to prevent child server crashes.
+			if strings.HasSuffix(strings.ToLower(arg), ".gguf") && strings.Contains(strings.ToLower(filepath.Base(arg)), "mmproj") {
+				lastArgWasMMProj := false
+				if len(finalArgs) > 0 && finalArgs[len(finalArgs)-1] == "--mmproj" {
+					lastArgWasMMProj = true
+				}
+				if !lastArgWasMMProj {
+					finalArgs = append(finalArgs, "--mmproj")
+				}
+			}
 			finalArgs = append(finalArgs, arg)
 		}
 	}
