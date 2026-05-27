@@ -60,7 +60,12 @@ export async function loadRecentBenchmarksDashboard() {
   const dashBenchList = document.getElementById("dash-bench-list");
   try {
     state.benchmarks = await apiCall("/api/benchmarks");
-    const completed = state.benchmarks.filter(b => b.status === "completed").slice(-4).reverse();
+    
+    // Sort benchmarks by started_at descending (newest first)
+    const completed = state.benchmarks
+      .filter(b => b.status === "completed")
+      .sort((a, b) => new Date(b.started_at) - new Date(a.started_at))
+      .slice(0, 4);
     
     if (completed.length === 0) {
       dashBenchList.innerHTML = `<div class="empty-state">No benchmarks completed yet. Go to Server Lifecycle to trigger one!</div>`;
@@ -69,18 +74,45 @@ export async function loadRecentBenchmarksDashboard() {
         ...completed.map(b => {
           const prof = state.profiles.find(p => p.id === b.profile_id);
           const name = prof ? prof.name : "Profile";
-          const speed = b.result && b.result.avg_tokens_per_sec ? parseFloat(b.result.avg_tokens_per_sec).toFixed(2) : "0";
-          return h("div", {style: "padding:12px; border-bottom: 1px solid rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center;"},
+          
+          let speedVal = 0;
+          let latencyStr = "";
+          if (b.cells && b.cells.length > 0) {
+            const first = b.cells[0];
+            speedVal = parseFloat(first.aggregates.tg_speed_mean || 0);
+            const lat = parseFloat(first.aggregates.e2e_p50 || 0);
+            if (lat > 0) latencyStr = ` · Latency: ${lat.toFixed(0)}ms`;
+          } else if (b.result) {
+            speedVal = parseFloat(b.result.avg_tokens_per_sec || 0);
+            const lat = parseFloat(b.result.avg_latency_ms || 0);
+            if (lat > 0) latencyStr = ` · Latency: ${lat.toFixed(0)}ms`;
+          }
+          const speed = speedVal > 0 ? speedVal.toFixed(1) : "0";
+
+          let typeLabel = "Single-Shot";
+          if (b.kind === "sweep") typeLabel = `Sweep (${b.sweep_flag})`;
+          if (b.kind === "concurrency") typeLabel = "Concurrency";
+
+          const workload = b.workload_id || "custom";
+
+          return h("div", {style: "padding:12px 14px; border-bottom: 1px solid rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center;"},
             h("div", {},
-              h("strong", {style: "display:block; font-size:0.9rem;"}, name),
-              h("span",   {style: "font-size:0.7rem; color:var(--text-dim);"}, formatDate(b.started_at))
+              h("div", {style: "display:flex; align-items:center; gap:8px; margin-bottom:3px;"},
+                h("strong", {style: "font-size:0.92rem;"}, name),
+                h("span", {class: "status-pill yellow", style: "font-size:0.68rem; padding:2px 6px;"}, typeLabel)
+              ),
+              h("div", {style: "font-size:0.72rem; color:var(--text-dim);"}, 
+                formatDate(b.started_at), 
+                h("span", {style: "opacity:0.65;"}, ` · Workload: ${workload}${latencyStr}`)
+              )
             ),
-            h("span", {style: "font-size:1.1rem; font-weight:800; color:var(--accent-pink);"}, `${speed} T/s`)
+            h("span", {style: "font-size:1.05rem; font-weight:800; color:var(--accent-pink); white-space:nowrap;"}, `${speed} T/s`)
           );
         })
       );
     }
-  } catch {
+  } catch (err) {
+    console.error(err);
     dashBenchList.innerHTML = `<div class="empty-state">Failed to load benchmarks.</div>`;
   }
 }

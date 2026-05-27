@@ -182,13 +182,41 @@ function updateGlobalDiagnosticState() {
   const statusDot = document.getElementById("global-status-dot");
   const statusText = document.getElementById("global-binary-status");
   
-  if (state.settings.llama_server_bin) {
-    if (statusDot) statusDot.className = "status-dot green";
-    if (statusText) statusText.textContent = "Binary Configured";
-  } else {
-    if (statusDot) statusDot.className = "status-dot red";
-    if (statusText) statusText.textContent = "Setup Needed";
+  if (!statusDot || !statusText) return;
+
+  if (!state.settings || !state.settings.llama_server_bin) {
+    statusDot.className = "status-dot red";
+    statusText.textContent = "Binary Missing";
+    return;
   }
+
+  // 1. Active benchmarking runs
+  const isBenchmarking = state.benchmarks && state.benchmarks.some(b => b.status === "running");
+  if (isBenchmarking) {
+    statusDot.className = "status-dot yellow";
+    statusText.textContent = "Benchmarking";
+    return;
+  }
+
+  // 2. Servers starting or loading
+  const startingCount = state.servers ? state.servers.filter(s => s.status === "starting" || s.status === "loading").length : 0;
+  if (startingCount > 0) {
+    statusDot.className = "status-dot yellow";
+    statusText.textContent = `Starting ${startingCount} Server${startingCount > 1 ? "s" : ""}...`;
+    return;
+  }
+
+  // 3. Active servers running/ready
+  const activeCount = state.servers ? state.servers.filter(s => s.status === "healthy" || s.status === "ready").length : 0;
+  if (activeCount > 0) {
+    statusDot.className = "status-dot green";
+    statusText.textContent = `Active: ${activeCount} Server${activeCount > 1 ? "s" : ""}`;
+    return;
+  }
+
+  // 4. Default System Ready
+  statusDot.className = "status-dot green";
+  statusText.textContent = "System Ready";
 }
 
 // --- 6. SERVER LIFECYCLE SECTION ---

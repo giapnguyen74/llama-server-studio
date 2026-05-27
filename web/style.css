@@ -1510,3 +1510,23 @@ pre, code, textarea.code-font, .terminal-body {
   font-family: var(--font-mono, monospace);
   font-size: 0.85rem;
 }
+
+/* Hugging Face Hub Downloader Styles */
+#hfhub-repo-input {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.95rem;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+#hfhub-repo-input:focus {
+  outline: none;
+  background: var(--surface-elevated);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+

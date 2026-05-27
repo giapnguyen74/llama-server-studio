@@ -75,8 +75,8 @@ export function applyModelDefaults(modelId) {
         opt.textContent = path.split('/').pop().split('\\').pop();
         mmSelect.appendChild(opt);
       });
-      mmEnable.checked = false;
-      mmDropdownGroup.style.display = "none";
+      mmEnable.checked = true;
+      mmDropdownGroup.style.display = "block";
       mmSelect.selectedIndex = 0;
     } else {
       mmContainer.style.display = "none";
@@ -422,7 +422,11 @@ export function initProfileEditor() {
   if (modelSelect) {
     modelSelect.replaceChildren(
       h("option", {value: ""}, "Select a Model..."),
-      ...state.models.filter(m => !m.hidden).map(m => h("option", {value: m.id}, m.display_name))
+      ...state.models.filter(m => !m.hidden).map(m => {
+        const isVision = (m.capabilities && m.capabilities.includes("vision")) || (m.mmproj_candidates && m.mmproj_candidates.length > 0);
+        const label = isVision ? `${m.display_name} *` : m.display_name;
+        return h("option", {value: m.id}, label);
+      })
     );
   }
   
@@ -438,6 +442,8 @@ export function selectProfile(profileID) {
   const p = state.profiles.find(prof => prof.id === profileID);
   if (!p) return;
 
+  const m = state.models.find(mod => mod.id === p.model_id);
+
   showDetailView();
   document.getElementById("profile-editor-title").textContent = p.name;
   document.getElementById("edit-profile-id").value = p.id;
@@ -448,7 +454,11 @@ export function selectProfile(profileID) {
   if (modelSelect) {
     modelSelect.replaceChildren(
       h("option", {value: ""}, "Select a Model..."),
-      ...state.models.filter(m => !m.hidden).map(m => h("option", {value: m.id}, m.display_name))
+      ...state.models.filter(m => !m.hidden).map(m => {
+        const isVision = (m.capabilities && m.capabilities.includes("vision")) || (m.mmproj_candidates && m.mmproj_candidates.length > 0);
+        const label = isVision ? `${m.display_name} *` : m.display_name;
+        return h("option", {value: m.id}, label);
+      })
     );
     modelSelect.value = p.model_id;
   }
