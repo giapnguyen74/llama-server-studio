@@ -169,7 +169,13 @@ async function loadData(updateUI = true) {
       if (activeTab === "dashboard") {
         loadDashboard();
       } else if (activeTab === "servers") {
+        // Always re-render the list (even if hidden) so status pills stay fresh.
         renderLifecycleList();
+        // If the detail view is open, sync the status badge from the fresh server list.
+        if (state.activeServerId) {
+          const freshSrv = state.servers.find(s => s.id === state.activeServerId);
+          if (freshSrv) syncDetailStatusBadge(freshSrv);
+        }
       }
       updateGlobalDiagnosticState();
     }
@@ -618,9 +624,32 @@ async function pollServerLogs(serverID) {
   } catch {}
 }
 
+// Sync the detail-view status badge (and PID) from a live server object.
+// Called from pollServerTelemetry (every 1.5s) and from loadData (every 4s)
+// so the badge always reflects the actual process state.
+function syncDetailStatusBadge(srv) {
+  const badge = document.getElementById("srv-status-badge");
+  if (!badge) return;
+  const sc = statusClass(srv.status);
+  badge.className   = `tel-val status-pill ${sc}`;
+  badge.textContent = srv.status;
+  const pidEl = document.getElementById("srv-pid-val");
+  if (pidEl) pidEl.textContent = srv.pid || "—";
+}
+
 async function pollServerTelemetry(serverID) {
   if (document.visibilityState !== "visible") return;
   try {
+    // Re-fetch the server record so status transitions (starting → healthy)
+    // are reflected immediately without waiting for the 4-second global poll.
+    const freshSrv = await apiCall(`/api/servers/${serverID}`);
+    if (freshSrv) {
+      // Patch state.servers in-place so the rest of the UI stays consistent.
+      const idx = state.servers.findIndex(s => s.id === serverID);
+      if (idx !== -1) state.servers[idx] = freshSrv;
+      syncDetailStatusBadge(freshSrv);
+    }
+
     const samples = await apiCall(`/api/servers/${serverID}/stats?limit=30`);
     if (samples.length === 0) return;
 
