@@ -643,6 +643,7 @@ const testOutputBox = document.getElementById("test-response-output");
 
 // Dynamic attachment state
 let attachedBase64 = null;
+let attachedFile = null;
 
 // File Upload Bindings
 const testAttachmentInput = document.getElementById("test-attachment");
@@ -672,6 +673,7 @@ if (testAttachmentInput) {
     const reader = new FileReader();
     reader.onload = () => {
       attachedBase64 = reader.result;
+      attachedFile = file;
       if (attachmentName) attachmentName.textContent = file.name;
       if (attachmentPreview) attachmentPreview.style.display = "inline-flex";
     };
@@ -685,6 +687,7 @@ if (testAttachmentInput) {
 if (btnClearAttachment) {
   btnClearAttachment.addEventListener("click", () => {
     attachedBase64 = null;
+    attachedFile = null;
     if (testAttachmentInput) testAttachmentInput.value = "";
     if (attachmentPreview) attachmentPreview.style.display = "none";
   });
@@ -719,14 +722,20 @@ if (testBtn) {
       const payload = {
         prompt,
         max_tokens: tokens,
-        temp: temp,
+        temperature: temp,
         stream: isStream
       };
 
-      // Append image_data if a multimodal image or audio file is attached
-      if (attachedBase64) {
-        const rawBase64 = attachedBase64.split(",")[1];
-        payload.image_data = [{ data: rawBase64, id: 1 }];
+      if (attachedFile) {
+        const dataURL = attachedBase64;
+        const commaIdx = dataURL.indexOf(",");
+        const raw = dataURL.slice(commaIdx + 1);
+        const mime = attachedFile.type || "";
+        let kind;
+        if (mime.startsWith("image/")) kind = "image";
+        else if (mime.startsWith("audio/")) kind = "audio";
+        else throw new Error("Unsupported file type: " + (mime || "unknown"));
+        payload.attachment = { kind, mime, data: raw };
       }
 
       const savedToken = localStorage.getItem("admin_token");
@@ -751,6 +760,7 @@ if (testBtn) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let currentEvent = null;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -762,15 +772,23 @@ if (testBtn) {
 
           for (const line of lines) {
             const clean = line.trim();
-            if (clean.startsWith("data: ")) {
+            if (clean.startsWith("event: ")) {
+              currentEvent = clean.substring(7).trim();
+            } else if (clean.startsWith("data: ")) {
               const dataStr = clean.substring(6);
               if (dataStr === "[DONE]") continue;
               try {
                 const parsed = JSON.parse(dataStr);
-                const chunk = parsed.content || (parsed.choices && parsed.choices[0].delta.content) || "";
+                if (currentEvent === "error") {
+                  testOutputBox.replaceChildren(h("span", {class: "err-line"}, `Request Failed: [${parsed.status}] ${parsed.message}`));
+                  currentEvent = null;
+                  continue;
+                }
+                const chunk = (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) || "";
                 testOutputBox.appendChild(document.createTextNode(chunk));
                 testOutputBox.scrollTop = testOutputBox.scrollHeight;
               } catch {}
+              currentEvent = null;
             }
           }
         }
@@ -801,20 +819,49 @@ if (btnCopyCurl) {
     const temp = parseFloat(document.getElementById("test-temp").value) || 0.7;
     const tokens = parseInt(document.getElementById("test-tokens").value) || 2048;
 
-    let payloadStr = `{\n` +
-      `    "prompt": "${prompt}",\n` +
-      `    "n_predict": ${tokens},\n` +
-      `    "temperature": ${temp}`;
+    let messages = [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": prompt }
+        ]
+      }
+    ];
 
-    if (attachedBase64) {
-      const rawBase64 = attachedBase64.split(",")[1];
-      payloadStr += `,\n    "image_data": [{"data": "${rawBase64.substring(0, 40)}...", "id": 1}]`;
+    if (attachedFile && attachedBase64) {
+      const dataURL = attachedBase64;
+      const commaIdx = dataURL.indexOf(",");
+      const raw = dataURL.slice(commaIdx + 1);
+      const mime = attachedFile.type || "";
+      const truncated = raw.substring(0, 40) + "...";
+      if (mime.startsWith("image/")) {
+        messages[0].content.push({
+          "type": "image_url",
+          "image_url": { "url": `data:${mime};base64,${truncated}` }
+        });
+      } else if (mime.startsWith("audio/")) {
+        let fmtVal = "wav";
+        if (mime.includes("mpeg") || mime.includes("mp3")) fmtVal = "mp3";
+        else if (mime.includes("flac")) fmtVal = "flac";
+        else if (mime.includes("ogg")) fmtVal = "ogg";
+        messages[0].content.push({
+          "type": "input_audio",
+          "input_audio": { "data": truncated, "format": fmtVal }
+        });
+      }
     }
-    payloadStr += `\n  }`;
 
-    const curl = `curl http://${host}:${s.port}/completion \\\n` +
+    const payload = {
+      "model": s.profile_snapshot?.name || "model",
+      "messages": messages,
+      "max_tokens": tokens,
+      "temperature": temp,
+      "stream": false
+    };
+
+    const curl = `curl -X POST http://${host}:${s.port}/v1/chat/completions \\\n` +
       `  -H "Content-Type: application/json" \\\n` +
-      `  -d '${payloadStr}'`;
+      `  -d '${JSON.stringify(payload, null, 2)}'`;
 
     navigator.clipboard.writeText(curl);
     alert("curl block copied successfully!");
