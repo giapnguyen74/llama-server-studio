@@ -64,7 +64,7 @@ export function renderHFHubBrowse(lastJob) {
 
   const inputRow = h("div", {
     class: "filter-panel glass-card",
-    style: "display:flex; gap:12px; align-items:center; padding:18px 20px;"
+    style: "display:flex; flex-direction:row !important; gap:12px; align-items:center; padding:18px 20px;"
   }, repoInput, fetchBtn);
 
   const errorBox = h("div", {style: "display:none; margin-bottom:16px; padding:12px 16px; background:rgba(185,28,28,0.08); border:1px solid rgba(185,28,28,0.25); border-radius:8px; color:var(--accent-red); font-size:0.88rem;"});

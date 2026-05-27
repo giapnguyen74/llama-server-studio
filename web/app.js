@@ -718,8 +718,8 @@ if (testBtn) {
     try {
       const payload = {
         prompt,
-        n_predict: tokens,
-        temperature: temp,
+        max_tokens: tokens,
+        temp: temp,
         stream: isStream
       };
 
@@ -729,9 +729,15 @@ if (testBtn) {
         payload.image_data = [{ data: rawBase64, id: 1 }];
       }
 
-      const response = await fetch(`http://${host}:${s.port}/completion`, {
+      const savedToken = localStorage.getItem("admin_token");
+      const headers = { "Content-Type": "application/json" };
+      if (savedToken) {
+        headers["Authorization"] = `Bearer ${savedToken}`;
+      }
+
+      const response = await fetch(`/api/servers/${state.activeServerId}/test`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: headers,
         body: JSON.stringify(payload)
       });
 
@@ -770,7 +776,8 @@ if (testBtn) {
         }
       } else {
         const data = await response.json();
-        testOutputBox.textContent = data.content || JSON.stringify(data, null, 2);
+        const responseText = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || data.content || JSON.stringify(data, null, 2);
+        testOutputBox.textContent = responseText;
       }
     } catch (err) {
       testOutputBox.replaceChildren(h("span", {class: "err-line"}, `Request Failed: ${err.message}`));

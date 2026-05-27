@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"llama-server-studio/internal/stats"
@@ -143,10 +144,11 @@ func (s *Server) handleTestServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var reqPayload struct {
-		Prompt    string  `json:"prompt"`
-		Temp      float64 `json:"temp"`
-		MaxTokens int     `json:"max_tokens"`
-		Stream    bool    `json:"stream"`
+		Prompt    string                   `json:"prompt"`
+		Temp      float64                  `json:"temp"`
+		MaxTokens int                      `json:"max_tokens"`
+		Stream    bool                     `json:"stream"`
+		ImageData []map[string]interface{} `json:"image_data,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&reqPayload); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -158,14 +160,54 @@ func (s *Server) handleTestServer(w http.ResponseWriter, r *http.Request) {
 	if proxyHost == "0.0.0.0" || proxyHost == "::" || proxyHost == "" {
 		proxyHost = "127.0.0.1"
 	}
-	completionURL := fmt.Sprintf("http://%s:%d/completion", proxyHost, srv.Port)
+	
+	// Convert Quick Test request to OpenAI chat completions format as specified
+	completionURL := fmt.Sprintf("http://%s:%d/v1/chat/completions", proxyHost, srv.Port)
 
-	body, _ := json.Marshal(map[string]interface{}{
-		"prompt":    reqPayload.Prompt,
-		"n_predict": reqPayload.MaxTokens,
-		"temp":      reqPayload.Temp,
-		"stream":    reqPayload.Stream,
-	})
+	var messages []map[string]interface{}
+
+	if len(reqPayload.ImageData) > 0 {
+		var contentParts []map[string]interface{}
+		contentParts = append(contentParts, map[string]interface{}{
+			"type": "text",
+			"text": reqPayload.Prompt,
+		})
+
+		for _, img := range reqPayload.ImageData {
+			if dataVal, ok := img["data"].(string); ok {
+				dataURL := dataVal
+				if !strings.HasPrefix(dataVal, "data:") {
+					dataURL = "data:image/jpeg;base64," + dataVal
+				}
+				contentParts = append(contentParts, map[string]interface{}{
+					"type": "image_url",
+					"image_url": map[string]interface{}{
+						"url": dataURL,
+					},
+				})
+			}
+		}
+
+		messages = append(messages, map[string]interface{}{
+			"role":    "user",
+			"content": contentParts,
+		})
+	} else {
+		messages = append(messages, map[string]interface{}{
+			"role":    "user",
+			"content": reqPayload.Prompt,
+		})
+	}
+
+	payloadMap := map[string]interface{}{
+		"model":       "model",
+		"messages":    messages,
+		"max_tokens":  reqPayload.MaxTokens,
+		"temperature": reqPayload.Temp,
+		"stream":      reqPayload.Stream,
+	}
+
+	body, _ := json.Marshal(payloadMap)
 
 	req, err := http.NewRequest("POST", completionURL, bytes.NewBuffer(body))
 	if err != nil {

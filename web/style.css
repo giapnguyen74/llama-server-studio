@@ -1513,6 +1513,8 @@ pre, code, textarea.code-font, .terminal-body {
 
 /* Hugging Face Hub Downloader Styles */
 #hfhub-repo-input {
+  width: 100%;
+  min-width: 480px;
   background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
