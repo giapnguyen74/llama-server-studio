@@ -76,15 +76,13 @@ export function renderHFHubBrowse(lastJob) {
 
   root.append(inputRow, errorBox);
 
-  // HF_TOKEN warning banner
-  if (state.settings && state.settings.hf_token_configured === false) {
-    root.append(h("div", {
-      style: "margin-bottom: 16px; padding: 12px 16px; background: rgba(180,83,9,0.08); border: 1px solid rgba(180,83,9,0.25); border-radius: 8px; font-size: 0.88rem;"
-    },
-      h("strong", {style: "color: var(--accent-yellow);"}, "HF_TOKEN not configured. "),
-      "Public repos still work, but rate limits are tighter and gated repos will fail. Set HF_TOKEN in your environment before launching the studio to lift these limits."
-    ));
-  }
+  // HF Token card — load current status then render interactively
+  const tokenCard = h("div", {
+    class: "glass-card",
+    style: "padding: 18px 20px; margin-bottom: 16px;"
+  });
+  root.append(tokenCard);
+  renderHFTokenCard(tokenCard);
 
   // Last job summary (completed / cancelled / failed / partial)
   if (lastJob && lastJob.status && lastJob.status !== "running" && lastJob.status !== "cancelling") {
@@ -98,7 +96,96 @@ export function renderHFHubBrowse(lastJob) {
   renderDownloadHistorySection(root);
 }
 
+async function renderHFTokenCard(container) {
+  // Show loading state immediately
+  container.replaceChildren(h("span", {style: "color: var(--text-dim); font-size: 0.85rem;"}, "Loading token status…"));
+
+  let status = { configured: false, source: "none" };
+  try {
+    status = await apiCall("/api/hf/token");
+  } catch { /* show card anyway, assume unconfigured */ }
+
+  const sourceLabels = {
+    env:    { text: "Active (env var)", color: "green" },
+    config: { text: "Active (config.json)", color: "green" },
+    none:   { text: "Not configured", color: "yellow" },
+  };
+  const sl = sourceLabels[status.source] || sourceLabels.none;
+
+  const badge = h("span", {
+    class: `status-pill ${sl.color}`,
+    style: "font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; margin-left: 10px;"
+  }, sl.text);
+
+  const isEnv = status.source === "env";
+
+  const tokenInput = h("input", {
+    type: "password",
+    placeholder: isEnv ? "Managed by HF_TOKEN env var" : "hf_xxxxxxxxxxxxxxxxxxxxxxxx",
+    style: "flex: 1; font-family: monospace; font-size: 0.88rem;",
+    disabled: isEnv,
+    autocomplete: "off",
+  });
+
+  const saveBtn = h("button", { class: "btn btn-primary btn-sm", disabled: isEnv }, "Save");
+  const clearBtn = h("button", {
+    class: "btn btn-sm",
+    style: "background: var(--bg-tertiary); color: var(--text-muted);",
+    disabled: isEnv || !status.configured,
+  }, "Clear");
+
+  const feedback = h("span", { style: "font-size: 0.82rem; margin-left: 8px;" });
+
+  async function doSave(token) {
+    saveBtn.disabled = true;
+    clearBtn.disabled = true;
+    feedback.textContent = "";
+    try {
+      const res = await apiCall("/api/hf/token", "POST", { token });
+      feedback.style.color = "var(--accent-green)";
+      feedback.textContent = token ? "✓ Token saved" : "✓ Token cleared";
+      // Refresh the card to reflect new state
+      setTimeout(() => renderHFTokenCard(container), 800);
+    } catch (err) {
+      feedback.style.color = "var(--accent-red)";
+      feedback.textContent = "✗ " + err.message;
+      saveBtn.disabled = false;
+      clearBtn.disabled = false;
+    }
+  }
+
+  saveBtn.addEventListener("click", () => {
+    const val = tokenInput.value.trim();
+    if (!val) { feedback.style.color = "var(--accent-red)"; feedback.textContent = "Enter a token first"; return; }
+    doSave(val);
+  });
+  clearBtn.addEventListener("click", () => doSave(""));
+  tokenInput.addEventListener("keydown", e => { if (e.key === "Enter") saveBtn.click(); });
+
+  const hintText = isEnv
+    ? "The HF_TOKEN environment variable is active and takes priority. To manage the token here, unset the env var and restart the studio."
+    : "Token is stored in config.json (owner-read-only). " +
+      (status.source === "config"
+        ? "Clear to remove it."
+        : "Public repos work without a token but rate limits are tighter and gated repos require one.");
+
+  container.replaceChildren(
+    h("div", { style: "display: flex; align-items: center; margin-bottom: 12px; gap: 8px;" },
+      h("strong", { style: "font-size: 0.9rem;" }, "🔑 Hugging Face Token"),
+      badge
+    ),
+    h("p", { style: "font-size: 0.82rem; color: var(--text-dim); margin-bottom: 12px;" }, hintText),
+    h("div", { style: "display: flex; gap: 8px; align-items: center;" },
+      tokenInput,
+      saveBtn,
+      clearBtn,
+      feedback
+    )
+  );
+}
+
 async function doFetchRepo(repoID, fetchBtn, errorBox) {
+
   if (!repoID) {
     errorBox.textContent = "Please enter a repo id.";
     errorBox.style.display = "block";

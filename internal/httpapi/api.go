@@ -176,6 +176,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/hf/jobs/current", auth(s.handleHFCurrentJob))
 	mux.HandleFunc("POST /api/hf/jobs/current/cancel", auth(s.handleHFCancelJob))
 	mux.HandleFunc("GET /api/hf/jobs/resumable", auth(s.handleHFResumable))
+	mux.HandleFunc("POST /api/hf/token", auth(s.handleSetHFToken))
+	mux.HandleFunc("GET /api/hf/token", auth(s.handleGetHFTokenStatus))
+
 
 
 	// 3c. Legacy single-file shim

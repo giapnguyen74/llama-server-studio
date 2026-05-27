@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"llama-server-studio/internal/config"
 	"llama-server-studio/internal/models"
 )
 
@@ -73,7 +74,7 @@ func (s *Server) handleHFRepo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"repo_id":             repoID,
 		"files":               files,
-		"hf_token_configured": os.Getenv("HF_TOKEN") != "" || os.Getenv("HF_API_TOKEN") != "",
+		"hf_token_configured": models.HFTokenConfigured(),
 	})
 }
 
@@ -301,4 +302,65 @@ func (s *Server) handleHFRepoReadme(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGetHFTokenStatus returns whether a token is configured and from which source,
+// without ever revealing the token value.
+func (s *Server) handleGetHFTokenStatus(w http.ResponseWriter, r *http.Request) {
+	envSet := strings.TrimSpace(os.Getenv("HF_TOKEN")) != "" ||
+		strings.TrimSpace(os.Getenv("HF_API_TOKEN")) != ""
+	configSet := strings.TrimSpace(s.cfg.HFToken) != ""
 
+	var source string
+	switch {
+	case envSet:
+		source = "env" // env var wins; config value is unused while env is set
+	case configSet:
+		source = "config"
+	default:
+		source = "none"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"configured": envSet || configSet,
+		"source":     source,
+	})
+}
+
+// handleSetHFToken saves (or clears) the Hugging Face token in config.json and
+// hot-updates the in-memory token used by the downloader. The env var always
+// takes priority at request time — this endpoint only affects the config.json value.
+func (s *Server) handleSetHFToken(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token string `json:"token"` // empty string = clear
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	tok := strings.TrimSpace(req.Token)
+
+	// Basic sanity: HF tokens start with "hf_" (user/write tokens) or are empty.
+	// We allow anything non-empty to be forward-compatible with future token formats.
+	s.cfg.HFToken = tok
+	if err := config.SaveConfig(s.cfg, s.cfgPath); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
+		return
+	}
+
+	// Hot-update the downloader — no restart required.
+	models.SetHFToken(tok)
+
+	source := "config"
+	if tok == "" {
+		source = "none"
+	}
+	// If env var is set it overrides config at request time anyway.
+	if strings.TrimSpace(os.Getenv("HF_TOKEN")) != "" || strings.TrimSpace(os.Getenv("HF_API_TOKEN")) != "" {
+		source = "env"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":     true,
+		"source": source,
+	})
+}

@@ -148,8 +148,8 @@ func applyHFAuth(req *http.Request) {
 	}
 }
 
-// hfTokenConfigured reports whether an authorization token is set either in env or config.
-func hfTokenConfigured() bool {
+// HFTokenConfigured reports whether an authorization token is set either in env or config.
+func HFTokenConfigured() bool {
 	if strings.TrimSpace(os.Getenv("HF_TOKEN")) != "" || strings.TrimSpace(os.Getenv("HF_API_TOKEN")) != "" {
 		return true
 	}
