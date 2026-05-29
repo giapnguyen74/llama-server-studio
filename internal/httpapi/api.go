@@ -168,7 +168,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/models/scan-status", auth(s.handleScanStatus))
 	mux.HandleFunc("GET /api/state", auth(s.handleGetState))
 
-
 	// 3b. Hugging Face Hub downloader — see docs/hf_support.md §6.
 	mux.HandleFunc("GET /api/hf/repo", auth(s.handleHFRepo))
 	mux.HandleFunc("GET /api/hf/repo/readme", auth(s.handleHFRepoReadme))
@@ -176,10 +175,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/hf/jobs/current", auth(s.handleHFCurrentJob))
 	mux.HandleFunc("POST /api/hf/jobs/current/cancel", auth(s.handleHFCancelJob))
 	mux.HandleFunc("GET /api/hf/jobs/resumable", auth(s.handleHFResumable))
+	mux.HandleFunc("DELETE /api/hf/jobs/resumable", auth(s.handleHFRemoveResumable))
 	mux.HandleFunc("POST /api/hf/token", auth(s.handleSetHFToken))
 	mux.HandleFunc("GET /api/hf/token", auth(s.handleGetHFTokenStatus))
-
-
 
 	// 3c. Legacy single-file shim
 	mux.HandleFunc("POST /api/models/download", auth(s.handleDownloadModelLegacy))
@@ -255,7 +253,6 @@ func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", gatewayAuth(s.handleGatewayListModels))
 	mux.HandleFunc("GET /v1/models/{model_id}", gatewayAuth(s.handleGatewayGetModel))
 	mux.HandleFunc("GET /health", gatewayAuth(s.handleGatewayHealth))
-
 
 	// Catch-all model routed endpoint
 	mux.HandleFunc("/", gatewayAuth(s.handleGatewayCatchAll))

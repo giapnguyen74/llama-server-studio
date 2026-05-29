@@ -241,16 +241,21 @@ async function renderResumableSection(root) {
   resumable.forEach(rj => {
     const totalBytes = (rj.files || []).reduce((acc, f) => acc + (f.size_bytes || 0), 0);
     const loadedBytes = (rj.files || []).reduce((acc, f) => acc + (f.bytes_loaded || 0), 0);
+
+    const resumeBtn = h("button", {class: "btn btn-secondary btn-sm"}, "Resume");
+    const removeBtn = h("button", {class: "btn btn-danger btn-sm", style: "margin-left: 8px;"}, "Remove");
+
+    resumeBtn.addEventListener("click", () => resumeJob(rj));
+    removeBtn.addEventListener("click", () => removeResumable(rj));
+
     const row = h("div", {style: "display:flex; justify-content:space-between; align-items:center; padding:12px; border-top:1px solid var(--border-soft);"},
       h("div", {},
         h("strong", {style: "display:block; font-size: 0.92rem;"}, rj.repo_id),
         h("span", {style: "font-size: 0.78rem; color: var(--text-dim);"},
           `${rj.files.length} file(s) · ${formatBytes(loadedBytes)} of ${formatBytes(totalBytes)} on disk`)
       ),
-      h("button", {class: "btn btn-secondary btn-sm"}, "Resume")
+      h("div", {}, resumeBtn, removeBtn)
     );
-    const btn = row.querySelector("button");
-    btn.addEventListener("click", () => resumeJob(rj));
     card.append(row);
   });
 
@@ -300,6 +305,18 @@ async function resumeJob(rj) {
     loadHFHub();
   } catch (err) {
     alert(`Failed to resume: ${err.message}`);
+  }
+}
+
+async function removeResumable(rj) {
+  const confirmText = `Are you sure you want to remove the paused download job for ${rj.repo_id}?\n\nThis will physically delete all its incomplete (.part) files from disk and free space.`;
+  if (confirm(confirmText)) {
+    try {
+      await apiCall(`/api/hf/jobs/resumable?repo=${encodeURIComponent(rj.repo_id)}`, "DELETE");
+      loadHFHub();
+    } catch (err) {
+      alert(`Failed to remove job: ${err.message}`);
+    }
   }
 }
 

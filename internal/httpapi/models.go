@@ -129,6 +129,22 @@ func (s *Server) handleHFResumable(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, models.ListResumableJobs(s.cfg.HFDownloadRoot()))
 }
 
+func (s *Server) handleHFRemoveResumable(w http.ResponseWriter, r *http.Request) {
+	repoID := strings.TrimSpace(r.URL.Query().Get("repo"))
+	if repoID == "" {
+		writeJSONError(w, http.StatusBadRequest, "query param 'repo' is required")
+		return
+	}
+
+	err := models.RemoveResumableJob(repoID, s.cfg.HFDownloadRoot())
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
 func (s *Server) handleDownloadModelLegacy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ModelString string `json:"model_string"`
@@ -258,7 +274,30 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 				writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete file from disk: %v", err))
 				return
 			}
+
+			// Clean up any hf downloader metadata (.job.json and .part files) in the same directory
+			dir := filepath.Dir(resolvedPath)
+			jobJSON := filepath.Join(dir, ".job.json")
+			if _, err := os.Stat(jobJSON); err == nil {
+				_ = os.Remove(jobJSON)
+				
+				// Also clean up any lingering .part files in that directory
+				if entries, err := os.ReadDir(dir); err == nil {
+					for _, ent := range entries {
+						if !ent.IsDir() && strings.HasSuffix(ent.Name(), ".part") {
+							_ = os.Remove(filepath.Join(dir, ent.Name()))
+						}
+					}
+				}
+				// Remove the directory if it's now empty
+				_ = os.Remove(dir)
+			}
 		}
+	}
+
+	// Always clear the active job in memory if the deleted model's repo ID matches
+	if m.RepoID != "" {
+		models.ClearActiveJobIfMatches(m.RepoID)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})

@@ -181,6 +181,17 @@ func (rt *Router) serveProfile(w http.ResponseWriter, r *http.Request, p storage
 			// Retain Host header for safety
 			req.Host = targetURL.Host
 		}
+
+		// Prevent duplicate/double CORS headers by stripping them from the backend response.
+		// The gateway or main API middleware already sets the correct CORS headers on the client response.
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			resp.Header.Del("Access-Control-Allow-Origin")
+			resp.Header.Del("Access-Control-Allow-Methods")
+			resp.Header.Del("Access-Control-Allow-Headers")
+			resp.Header.Del("Access-Control-Allow-Credentials")
+			resp.Header.Del("Access-Control-Expose-Headers")
+			return nil
+		}
 		
 		rt.proxies[targetURLStr] = proxy
 	}

@@ -310,3 +310,69 @@ func snapshotJob(j *DownloadJob) *DownloadJob {
 func newJobID() string {
 	return fmt.Sprintf("hfjob-%d", time.Now().UnixNano())
 }
+
+// RemoveResumableJob deletes the `.job.json` file and any `.part` files for a resumable job.
+// If the directory is empty after doing so, it removes the directory itself.
+func RemoveResumableJob(repoID string, downloadRoot string) error {
+	repoID = strings.TrimSpace(repoID)
+	if repoID == "" {
+		return errors.New("repo id is required")
+	}
+	if !validRepoID(repoID) {
+		return fmt.Errorf("invalid repo id %q", repoID)
+	}
+	if downloadRoot == "" {
+		return errors.New("download root is not configured")
+	}
+
+	safe := SafeRepoDir(repoID)
+	dir := filepath.Join(downloadRoot, safe)
+
+	// Verify that the directory actually exists and is inside downloadRoot
+	absRoot, err := filepath.Abs(filepath.Clean(downloadRoot))
+	if err != nil {
+		return err
+	}
+	absDir, err := filepath.Abs(filepath.Clean(dir))
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(absDir, absRoot) {
+		return errors.New("invalid directory path")
+	}
+
+	// Read directory contents to remove .part files and .job.json
+	entries, err := os.ReadDir(absDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // Already deleted
+		}
+		return err
+	}
+
+	for _, ent := range entries {
+		if ent.IsDir() {
+			continue
+		}
+		name := ent.Name()
+		if name == ".job.json" || strings.HasSuffix(name, ".part") {
+			path := filepath.Join(absDir, name)
+			_ = os.Remove(path)
+		}
+	}
+
+	// Try to remove the directory if it's now empty
+	_ = os.Remove(absDir) // os.Remove only succeeds if the directory is empty
+
+	return nil
+}
+
+// ClearActiveJobIfMatches clears the activeJob singleton if its RepoID matches,
+// provided it is not currently running or cancelling.
+func ClearActiveJobIfMatches(repoID string) {
+	activeJobMu.Lock()
+	defer activeJobMu.Unlock()
+	if activeJob != nil && activeJob.RepoID == repoID && activeJob.Status != StatusRunning && activeJob.Status != StatusCancelling {
+		activeJob = nil
+	}
+}
