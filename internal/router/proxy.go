@@ -61,6 +61,18 @@ func NewRouter(db *storage.DB, s *process.Supervisor, cfg *config.Config) *Route
 }
 
 
+// GetUpstreamURL returns the base URL (http://host:port) of the active server
+// for a profile, or ("", false) if no running server is found.
+func (rt *Router) GetUpstreamURL(p storage.Profile) (string, bool) {
+	servers := rt.db.ListServers()
+	for _, s := range servers {
+		if s.ProfileID == p.ID && (s.Status == "healthy" || s.Status == "ready") {
+			return fmt.Sprintf("http://%s:%d", s.Host, s.Port), true
+		}
+	}
+	return "", false
+}
+
 // ProxyByModel handles body/model routed requests.
 func (rt *Router) ProxyByModel(w http.ResponseWriter, r *http.Request, p storage.Profile) {
 	// Identity rewrite URL function

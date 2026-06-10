@@ -254,8 +254,52 @@ func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models/{model_id}", gatewayAuth(s.handleGatewayGetModel))
 	mux.HandleFunc("GET /health", gatewayAuth(s.handleGatewayHealth))
 
-	// Catch-all model routed endpoint
+	// Catch-all model routed endpoint (OpenAI-compatible, /v1/...)
 	mux.HandleFunc("/", gatewayAuth(s.handleGatewayCatchAll))
+
+	// ------------------------------------------------------------------
+	// Anthropic Messages API  (/api/v1/...)
+	// Accepts the same gateway token via x-api-key header OR
+	// Authorization: Bearer, matching the Anthropic SDK default behaviour.
+	// ------------------------------------------------------------------
+	anthropicAuth := func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, anthropic-version, anthropic-beta")
+
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			if !s.cfg.HasGatewayToken() {
+				writeAnthropicError(w, http.StatusServiceUnavailable, "api_error",
+					"Proxy gateway is disabled: no gateway_token is configured. "+
+						"Set one in the Security Gateway settings to enable the proxy endpoint.")
+				return
+			}
+
+			// x-api-key takes precedence (Anthropic SDK default), then Bearer.
+			token := r.Header.Get("x-api-key")
+			if token == "" {
+				token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			}
+			if token == "" {
+				token = r.URL.Query().Get("token")
+			}
+			if !s.cfg.VerifyGatewayToken(token) {
+				writeAnthropicError(w, http.StatusUnauthorized, "authentication_error",
+					"Invalid API key. Pass the gateway token via x-api-key or Authorization: Bearer.")
+				return
+			}
+
+			h(w, r)
+		}
+	}
+
+	mux.HandleFunc("GET /api/v1/models", anthropicAuth(s.handleAnthropicListModels))
+	mux.HandleFunc("POST /api/v1/messages", anthropicAuth(s.handleAnthropicMessages))
 }
 
 // --- Helpers ---

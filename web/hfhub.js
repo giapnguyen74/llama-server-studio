@@ -11,6 +11,7 @@ export const hfState = {
   lastBytes: {},          // maps filename -> { bytes: number, time: number, speed: number }
   readme: "",             // markdown/text README
   readmeCollapsed: true,  // README card state
+  tokenCollapsed: true,   // HF Token card state (hidden by default)
 };
 
 function jsIsMMProj(filename) {
@@ -117,6 +118,28 @@ async function renderHFTokenCard(container) {
     style: "font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; margin-left: 10px;"
   }, sl.text);
 
+  if (hfState.tokenCollapsed) {
+    const toggleBtn = h("button", {
+      class: "btn btn-sm btn-secondary",
+      style: "font-size: 0.8rem;"
+    }, "Show Settings");
+    toggleBtn.addEventListener("click", () => {
+      hfState.tokenCollapsed = false;
+      renderHFTokenCard(container);
+    });
+
+    container.replaceChildren(
+      h("div", { style: "display: flex; align-items: center; justify-content: space-between; gap: 8px;" },
+        h("div", { style: "display: flex; align-items: center; gap: 8px;" },
+          h("strong", { style: "font-size: 0.9rem;" }, "🔑 Hugging Face Token"),
+          badge
+        ),
+        toggleBtn
+      )
+    );
+    return;
+  }
+
   const isEnv = status.source === "env";
 
   const tokenInput = h("input", {
@@ -169,10 +192,22 @@ async function renderHFTokenCard(container) {
         ? "Clear to remove it."
         : "Public repos work without a token but rate limits are tighter and gated repos require one.");
 
+  const toggleBtn = h("button", {
+    class: "btn btn-sm btn-secondary",
+    style: "font-size: 0.8rem;"
+  }, "Hide Settings");
+  toggleBtn.addEventListener("click", () => {
+    hfState.tokenCollapsed = true;
+    renderHFTokenCard(container);
+  });
+
   container.replaceChildren(
-    h("div", { style: "display: flex; align-items: center; margin-bottom: 12px; gap: 8px;" },
-      h("strong", { style: "font-size: 0.9rem;" }, "🔑 Hugging Face Token"),
-      badge
+    h("div", { style: "display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px;" },
+      h("div", { style: "display: flex; align-items: center; gap: 8px;" },
+        h("strong", { style: "font-size: 0.9rem;" }, "🔑 Hugging Face Token"),
+        badge
+      ),
+      toggleBtn
     ),
     h("p", { style: "font-size: 0.82rem; color: var(--text-dim); margin-bottom: 12px;" }, hintText),
     h("div", { style: "display: flex; gap: 8px; align-items: center;" },
